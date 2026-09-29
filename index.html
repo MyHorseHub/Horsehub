@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.9.1</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.9.2</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.9.1 – Cloud-Fotos + Kalender-Fix + Foto-Optimierung */
+/* HorseHub 1.9.2 – Cloud-Fotos + Kalender-Fix + Foto-Optimierung */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -225,7 +225,7 @@ function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const mime=
 function horsePhotoPath(cloudId){return `${horseHubCloudUser.id}/${cloudId}.jpg`}
 async function getHorsePhotoUrl(path){if(!path||!horseHubCloudUser)return '';const {data,error}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).createSignedUrl(path,HORSE_PHOTO_URL_TTL);if(error)throw error;return data?.signedUrl||''}
 async function syncHorsePhoto(h,cloudId){if(!horseHubCloudUser||!cloudId)return {path:h.photo_path||'',url:h.photo||''};const path=horsePhotoPath(cloudId);if(h.photo_removed){const oldPath=h.photo_path||path;const {error}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).remove([oldPath]);if(error&&error.statusCode!=='404')throw error;await supabaseClient.from('horses').update({photo_url:null,updated_at:new Date().toISOString()}).eq('id',cloudId).eq('owner_id',horseHubCloudUser.id);return {path:'',url:''}}
-if(h.photo_dirty&&isDataImage(h.photo)){const blob=dataUrlToBlob(h.photo);const {error}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).upload(path,blob,{upsert:true,contentType:'image/jpeg',cacheControl:'31536000'});if(error)throw error;const {error:dbError}=await supabaseClient.from('horses').update({photo_url:path,updated_at:new Date().toISOString()}).eq('id',cloudId).eq('owner_id',horseHubCloudUser.id);if(dbError)throw dbError;const url=await getHorsePhotoUrl(path);return {path,url}}
+if((h.photo_dirty||isDataImage(h.photo))&&isDataImage(h.photo)){const blob=dataUrlToBlob(h.photo);const {error}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).upload(path,blob,{upsert:true,contentType:'image/jpeg',cacheControl:'31536000'});if(error)throw error;const {error:dbError}=await supabaseClient.from('horses').update({photo_url:path,updated_at:new Date().toISOString()}).eq('id',cloudId).eq('owner_id',horseHubCloudUser.id);if(dbError)throw dbError;const url=await getHorsePhotoUrl(path);return {path,url}}
 if(h.photo_path){return {path:h.photo_path,url:await getHorsePhotoUrl(h.photo_path)}}
 return {path:'',url:''}}
 async function insertHorseToCloud(h){if(!horseHubCloudUser||!h)throw new Error('Kein angemeldetes HorseHub-Konto');const cloudId=(h.cloud_id&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(h.cloud_id))?h.cloud_id:crypto.randomUUID();const payload={id:cloudId,owner_id:horseHubCloudUser.id,name:(h.name||'Unbenanntes Pferd').trim(),photo_url:null,details:cloudHorseDetails(h),updated_at:new Date().toISOString()};const {error}=await supabaseClient.from('horses').upsert(payload,{onConflict:'id',ignoreDuplicates:false});if(error)throw error;return cloudId}
