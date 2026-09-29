@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.9.3</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.0</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.9.3 – Cloud-Fotos + Kalender-Fix + Foto-Optimierung */
+/* HorseHub 1.10.0 – Vollständige Pferdedaten-Synchronisierung + Cloud-Fotos + Kalender */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -210,14 +210,22 @@ let horseHubCloudUser=null;
 let horseHubCloudSyncing=false;
 const horseHubCloudTimers=new Map();
 function setCloudStatus(text,isError=false){const el=$('accountCloudStatus');if(el){el.textContent=text;el.style.color=isError?'#a33':''}}
-function cloudHorseDetails(h){return {
-  _local_id:h.id||'',breed:h.breed||'',age:h.age||'',sex:h.sex||'Unbekannt',color:h.color||'',notes:h.notes||'',visible:h.visible!==false,
-  boxBedding:h.boxBedding||'',boxMucking:h.boxMucking||'',boxMuckAmount:h.boxMuckAmount||'',boxCare:h.boxCare||'',
-  outdoorType:h.outdoorType||'',outdoorFrom:h.outdoorFrom||'',outdoorTo:h.outdoorTo||'',outdoorFrequency:h.outdoorFrequency||'',outdoorCare:h.outdoorCare||'',outdoorCareNotes:h.outdoorCareNotes||'',
-  health:h.health||'',feeding:h.feeding||'',training:h.training||'',emergency:h.emergency||'',ownerPhone:h.ownerPhone||'',ownerName:h.ownerName||'',vetPhone:h.vetPhone||'',vetName:h.vetName||'',
-  feedingTimes:Array.isArray(h.feedingTimes)?h.feedingTimes:[],medications:Array.isArray(h.medications)?h.medications:[],documents:Array.isArray(h.documents)?h.documents:[],
-  todayEntries:Array.isArray(h.todayEntries)?h.todayEntries:[],healthEntries:Array.isArray(h.healthEntries)?h.healthEntries:[],trainingEntries:Array.isArray(h.trainingEntries)?h.trainingEntries:[]
-}}
+function cloudHorseDetails(h){
+  // Speichert den kompletten Pferdedatensatz in details, damit neue Felder
+  // automatisch mit synchronisiert werden. Technische/lokale Felder und Fotos
+  // bleiben außerhalb der JSONB-Datenbankspalte.
+  const copy=JSON.parse(JSON.stringify(h||{}));
+  const localId=copy.id||'';
+  delete copy.id;
+  delete copy.cloud_id;
+  delete copy.photo;
+  delete copy.photo_path;
+  delete copy.photo_dirty;
+  delete copy.photo_removed;
+  copy._local_id=localId;
+  copy._schema_version=1;
+  return copy;
+}
 function mergeCloudHorse(local,row){const d=row.details&&typeof row.details==='object'?row.details:{};const base=local||{};return {...base,...d,id:base.id||('hcloud_'+row.id),cloud_id:row.id,name:row.name||base.name||'Unbenanntes Pferd',photo_path:row.photo_url||base.photo_path||'',photo:base.photo||'',photo_dirty:false,photo_removed:false}}
 function cloudErrorText(e){const code=e?.code||e?.status||'';const msg=e?.message||String(e||'Unbekannter Fehler');const hint=e?.hint||'';const details=e?.details||'';const statusText=e?.statusText||'';const extra=[hint?`Hinweis: ${hint}`:'',details?`Details: ${details}`:'',statusText?`Status: ${statusText}`:''].filter(Boolean).join(' · ');return `${code?code+': ':''}${msg}${extra?' — '+extra:''}`}
 function isDataImage(src){return typeof src==='string'&&src.startsWith('data:image/')}
@@ -289,7 +297,7 @@ function dataUrlBytes(data){try{return dataUrlToBlob(data).size}catch(e){return 
 function formatBytes(bytes){if(bytes<1024)return bytes+' B';if(bytes<1024*1024)return (bytes/1024).toFixed(0)+' KB';return (bytes/1024/1024).toFixed(1)+' MB'}
 async function compressHorsePhotoData(data){const target=800*1024;let maxW=1600;let quality=.82;let result=data;for(let round=0;round<6;round++){result=await compressImageData(data,maxW,quality);if(dataUrlBytes(result)<=target)return result;if(quality>.62){quality-=.07}else{maxW=Math.max(1000,maxW-200);quality=.76}}return result}
 async function uploadProfileDocument(id,type,input){let f=input.files&&input.files[0];if(!f)return;if(f.size>10*1024*1024){alert('Bitte ein Bild unter 10 MB wählen.');input.value='';return}let reader=new FileReader();reader.onload=async()=>{let h=getHorses().find(x=>x.id===id);if(!h)return;let data=await compressImageData(reader.result);let title=prompt(type==='health'?'Titel des Befunds / Gesundheitsdokuments':'Titel des Dokuments',f.name.replace(/\.[^.]+$/,''))||'Dokument';let arr=[...(type==='health'?(h.healthAttachments||[]):(h.documentAttachments||[]))];arr.unshift({id:'a'+Date.now(),title:title.trim(),data,date:new Date().toLocaleDateString('de-DE')});let updated={...h,[type==='health'?'healthAttachments':'documentAttachments']:arr};localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===id?updated:x)));renderHorses();renderHorseProfile(updated);queueHorseCloudSync(id);input.value=''};reader.readAsDataURL(f)}
-function removeAttachment(id,type,aid){let h=getHorses().find(x=>x.id===id);if(!h)return;if(!confirm('Dieses Dokument wirklich löschen?'))return;let field=type==='health'?'healthAttachments':'documentAttachments';let updated={...h,[field]:(h[field]||[]).filter(a=>a.id!==aid)};localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===id?updated:x)));renderHorses();renderHorseProfile(updated)}
+function removeAttachment(id,type,aid){let h=getHorses().find(x=>x.id===id);if(!h)return;if(!confirm('Dieses Dokument wirklich löschen?'))return;let field=type==='health'?'healthAttachments':'documentAttachments';let updated={...h,[field]:(h[field]||[]).filter(a=>a.id!==aid)};localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===id?updated:x)));renderHorses();renderHorseProfile(updated);queueHorseCloudSync(id)}
 function getRoutines(){return JSON.parse(localStorage.getItem('routines')||'[]')}
 function saveRoutines(a){localStorage.setItem('routines',JSON.stringify(a));renderRoutines();renderTodayTasks()}
 function addRoutine(){let title=prompt('Routine / Aufgabe','Stall misten');if(!title?.trim())return;let horseId=prompt('Pferd-ID optional – leer lassen für Stall/alle Pferde','')||'';let frequency=prompt('Häufigkeit: täglich, werktags oder wöchentlich','täglich')||'täglich';frequency=frequency.toLowerCase().trim();if(!['täglich','werktags','wöchentlich'].includes(frequency))frequency='täglich';let time=prompt('Uhrzeit optional (HH:MM)','')||'';if(time&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(time.trim())){alert('Bitte Uhrzeit im Format HH:MM eingeben.');return}let arr=getRoutines();arr.push({id:'r'+Date.now(),title:title.trim(),horseId:horseId.trim(),frequency,time:time.trim(),weekday:frequency==='wöchentlich'?new Date().getDay():null,enabled:true});saveRoutines(arr);if(time)requestNotifications()}
