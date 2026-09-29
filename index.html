@@ -27,9 +27,62 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 .hero-edit{position:absolute;right:14px;top:14px;border:1px solid #ffffff66;background:#0006;color:#fff;border-radius:12px;padding:8px 10px;font-size:12px;backdrop-filter:blur(4px)}
 .feed-add{display:grid;grid-template-columns:1.2fr .8fr .7fr .7fr auto;gap:8px;align-items:end;margin-top:10px}
 @media(max-width:700px){.feed-add{grid-template-columns:1fr 1fr}.feed-add .feed-save{grid-column:1/-1}}
+
+/* HorseHub account / Supabase auth */
+.auth-gate{min-height:100vh;background:linear-gradient(145deg,#0d1213,#171e1f);display:flex;align-items:center;justify-content:center;padding:24px;color:#fff}
+.auth-card{width:min(520px,100%);background:#fffdf8;color:var(--ink);border-radius:24px;padding:26px;box-shadow:0 24px 60px #0008}
+.auth-brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.auth-brand img{width:52px;height:52px;border-radius:16px}
+.auth-brand h1{margin:0;font-size:1.55rem}.auth-brand h1 span{color:var(--accent)}
+.auth-card h2{margin:10px 0 6px}.auth-card .muted{margin-bottom:18px}
+.auth-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0}
+.auth-tabs button{border:1px solid var(--line);background:#f4efe7;color:var(--ink);padding:11px;border-radius:12px;font-weight:700}
+.auth-tabs button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.auth-form{display:grid;gap:12px}.auth-form label{font-weight:700;font-size:.92rem}.auth-form input{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit}
+.auth-primary{width:100%;margin-top:4px}.auth-link{background:none!important;border:0!important;padding:6px 0!important;color:#8a6400!important;text-align:left!important;font-weight:700}
+.auth-message{padding:12px;border-radius:12px;background:#f8edc9;margin-top:10px;line-height:1.4}
+.auth-error{background:#fde9e7;color:#8b2e22}
+.auth-userbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.auth-userbar .email{font-weight:700}.auth-userbar button{padding:8px 12px}
+.auth-loading{min-height:100vh;background:#111516;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
+.account-status{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
 </style>
 </head>
 <body>
+<div id="authLoading" class="auth-loading">HorseHub wird geladen …</div>
+<div id="authGate" class="auth-gate hidden">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <img src="./icon-192.png" alt="HorseHub">
+      <div><h1>Horse<span>Hub</span></h1><div class="muted" style="margin:0">Dein Stall. Digital. Immer dabei.</div></div>
+    </div>
+    <h2 id="authTitle">Anmelden</h2>
+    <p id="authSubtitle" class="muted">Melde dich an, um HorseHub auf deinen Geräten nutzen zu können.</p>
+    <div class="auth-tabs">
+      <button id="authLoginTab" class="active" type="button" onclick="setAuthMode('login')">Anmelden</button>
+      <button id="authSignupTab" type="button" onclick="setAuthMode('signup')">Konto erstellen</button>
+    </div>
+    <form id="authForm" class="auth-form" onsubmit="handleAuthSubmit(event)">
+      <div id="authNameWrap" class="field hidden">
+        <label for="authName">Dein Name</label>
+        <input id="authName" autocomplete="name" placeholder="Vor- und Nachname">
+      </div>
+      <div class="field">
+        <label for="authEmail">E-Mail-Adresse</label>
+        <input id="authEmail" type="email" autocomplete="email" required placeholder="name@beispiel.de">
+      </div>
+      <div class="field">
+        <label for="authPassword">Passwort</label>
+        <input id="authPassword" type="password" autocomplete="current-password" minlength="8" required placeholder="Mindestens 8 Zeichen">
+      </div>
+      <button id="authSubmit" class="auth-primary" type="submit">Anmelden</button>
+      <button id="forgotPasswordBtn" class="auth-link" type="button" onclick="handleForgotPassword()">Passwort vergessen?</button>
+    </form>
+    <div id="authMessage" class="auth-message hidden"></div>
+  </div>
+</div>
+<div id="horsehubApp" class="hidden">
+
 <header><div class="brand"><div class="brand-mark"><img class="brand-icon" src="./icon-192.png" alt="HorseHub"></div><div><h1>Horse<span>Hub</span></h1><small>Dein Stall. Digital. Immer dabei.</small></div><div class="head-actions"><button onclick="showById('settings')" aria-label="Einstellungen">⚙️</button><button onclick="showById('horses')" aria-label="Pferde">☰</button></div></div></header>
 <div class="tabs">
 <button class="active" onclick="show('home',this)"><span class="nav-icon">⌂</span>Start</button>
@@ -89,6 +142,16 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 </section>
 
 <section id="settings" class="hidden">
+<div class="card account-card">
+  <div class="account-status">
+    <div>
+      <h2 style="margin-bottom:4px">👤 Mein HorseHub-Konto</h2>
+      <div class="muted">Angemeldet als <span id="accountEmail">–</span></div>
+    </div>
+    <button class="secondary" onclick="signOutHorseHub()">Abmelden</button>
+  </div>
+  <div id="accountCloudStatus" class="muted" style="margin-top:10px">Cloud-Konto verbunden. Deine bisherigen lokalen HorseHub-Daten bleiben auf diesem Gerät erhalten.</div>
+</div>
 <div class="card" id="installCard">
 <h2>📲 HorseHub installieren</h2>
 <p class="muted">Installiere HorseHub auf deinem Android-Handy wie eine normale App. Mikrofon und Benachrichtigungen können danach als App-Berechtigungen freigegeben werden.</p>
@@ -124,6 +187,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 </main>
 <footer>HorseHub · Deine Daten bleiben auf diesem Gerät, solange du sie nicht exportierst oder die App-Daten löschst.</footer>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
@@ -291,5 +355,6 @@ async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;t
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleAllReminders();registerHorseHubPWA();
 </script>
+</div>
 </body>
 </html>
