@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.8.5</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.8.6</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.8.4 – Supabase Cloud-Diagnose */
+/* HorseHub 1.8.6 – Supabase Cloud-Sync-Fix */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 if(!window.supabase){document.addEventListener('DOMContentLoaded',()=>{const l=$('authLoading');if(l)l.textContent='HorseHub konnte den Anmeldedienst nicht laden. Bitte Internetverbindung prüfen.'});throw new Error('Supabase library not loaded')}
@@ -218,7 +218,7 @@ function cloudHorseDetails(h){return {
 }}
 function mergeCloudHorse(local,row){const d=row.details&&typeof row.details==='object'?row.details:{};return {...local,...d,id:local.id||('hcloud_'+row.id),cloud_id:row.id,name:row.name||local.name,photo:local.photo||''}}
 function cloudErrorText(e){const code=e?.code||e?.status||'';const msg=e?.message||String(e||'Unbekannter Fehler');const hint=e?.hint||'';const details=e?.details||'';const statusText=e?.statusText||'';const extra=[hint?`Hinweis: ${hint}`:'',details?`Details: ${details}`:'',statusText?`Status: ${statusText}`:''].filter(Boolean).join(' · ');return `${code?code+': ':''}${msg}${extra?' — '+extra:''}`}
-async function insertHorseToCloud(h){if(!horseHubCloudUser||!h)throw new Error('Kein angemeldetes HorseHub-Konto');const cloudId=(h.cloud_id&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(h.cloud_id))?h.cloud_id:crypto.randomUUID();const payload={id:cloudId,owner_id:horseHubCloudUser.id,name:(h.name||'Unbenanntes Pferd').trim(),photo_url:null,details:cloudHorseDetails(h),updated_at:new Date().toISOString()};const {error}=await supabaseClient.from('horses').insert(payload);if(error)throw error;return cloudId}
+async function insertHorseToCloud(h){if(!horseHubCloudUser||!h)throw new Error('Kein angemeldetes HorseHub-Konto');const cloudId=(h.cloud_id&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(h.cloud_id))?h.cloud_id:crypto.randomUUID();const payload={id:cloudId,owner_id:horseHubCloudUser.id,name:(h.name||'Unbenanntes Pferd').trim(),photo_url:null,details:cloudHorseDetails(h),updated_at:new Date().toISOString()};const {error}=await supabaseClient.from('horses').upsert(payload,{onConflict:'id',ignoreDuplicates:false});if(error)throw error;return cloudId}
 async function updateHorseInCloud(h){if(!horseHubCloudUser||!h?.cloud_id)return false;const payload={name:(h.name||'Unbenanntes Pferd').trim(),photo_url:null,details:cloudHorseDetails(h),updated_at:new Date().toISOString()};const {error}=await supabaseClient.from('horses').update(payload).eq('id',h.cloud_id).eq('owner_id',horseHubCloudUser.id);if(error)throw error;return true}
 function saveHorseCloudId(localId,cloudId){const hs=getHorses().map(x=>x.id===localId?{...x,cloud_id:cloudId}:x);localStorage.setItem('horses',JSON.stringify(hs));return hs}
 async function syncHorseToCloud(id){if(!horseHubCloudUser)return;const h=getHorses().find(x=>x.id===id);if(!h)return;try{let cloudId=h.cloud_id;if(cloudId){await updateHorseInCloud(h)}else{cloudId=await insertHorseToCloud(h);saveHorseCloudId(h.id,cloudId)}setCloudStatus('☁️ Pferdedaten synchronisiert. Fotos und Dokument-Bilder bleiben in 1.8 noch lokal.')}catch(e){console.warn('Horse konnte nicht mit der Cloud synchronisiert werden',e);setCloudStatus(`⚠️ Cloud-Synchronisierung fehlgeschlagen: ${cloudErrorText(e)}. Deine lokalen Daten bleiben erhalten.`,true)}}
