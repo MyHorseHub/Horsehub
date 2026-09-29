@@ -1,14 +1,12 @@
 {
-  "name": "HorseHub – Pferde-Management",
+  "name": "HorseHub",
   "short_name": "HorseHub",
-  "description": "Pferde, Gesundheit, Fütterung, Training, Kalender und Kontakte an einem Ort.",
-  "start_url": "./",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#f4efe7",
-  "theme_color": "#101516",
-  "lang": "de-DE",
+  "background_color": "#111517",
+  "theme_color": "#111517",
+  "description": "Dein Stall. Digital. Immer dabei.",
   "icons": [
     {"src":"./icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
     {"src":"./icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
