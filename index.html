@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.4</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.5</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.4 – Notfall speichern + vollständige Pferdedaten-Synchronisierung + Cloud-Fotos + Kalender */
+/* HorseHub 1.10.5 – Notfall speichern + vollständige Pferdedaten-Synchronisierung + Cloud-Fotos + Kalender */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -221,7 +221,7 @@ function cloudHorseDetails(h){
   delete copy.photo_removed;
   delete copy.cloud_synced_at;
   copy._local_id=localId;
-  copy._schema_version=2;
+  copy._schema_version=3;
   return copy;
 }
 function mergeCloudHorse(local,row){
@@ -230,6 +230,8 @@ function mergeCloudHorse(local,row){
   return {...base,...d,id:base.id||('hcloud_'+row.id),cloud_id:row.id,name:row.name||d.name||base.name||'Unbenanntes Pferd',photo_path:row.photo_url||base.photo_path||'',photo:base.photo||'',photo_dirty:false,photo_removed:false,cloud_synced_at:row.updated_at||base.cloud_synced_at||''};
 }
 function markHorseLocalChange(h){return {...h,local_updated_at:new Date().toISOString()}}
+function cloudTimestamp(row){return row?.updated_at||''}
+function cloudWins(local,row){const lt=new Date(local?.local_updated_at||0).getTime();const ct=new Date(row?.updated_at||0).getTime();return ct>=lt;}
 function setHorseLocalState(id,patch){const hs=getHorses().map(x=>x.id===id?{...x,...patch}:x);localStorage.setItem('horses',JSON.stringify(hs));return hs}
 function cloudErrorText(e){const code=e?.code||e?.status||'';const msg=e?.message||String(e||'Unbekannter Fehler');const hint=e?.hint||'';const details=e?.details||'';const statusText=e?.statusText||'';const extra=[hint?`Hinweis: ${hint}`:'',details?`Details: ${details}`:'',statusText?`Status: ${statusText}`:''].filter(Boolean).join(' · ');return `${code?code+': ':''}${msg}${extra?' — '+extra:''}`}
 function isDataImage(src){return typeof src==='string'&&src.startsWith('data:image/')}
@@ -259,7 +261,7 @@ if(!synced){
   const at=await updateHorseInCloud({...h,cloud_id:cloudId});
   final={...h,cloud_synced_at:at};finalSynced=at;
 }else if(localChanged&&cloudChanged){
-  if(new Date(h.local_updated_at||0)>=new Date(row.updated_at||0)){
+  if(new Date(h.local_updated_at||0)>new Date(row.updated_at||0)){
     const at=await updateHorseInCloud({...h,cloud_id:cloudId});final={...h,cloud_synced_at:at};finalSynced=at;
   }else{
     final=mergeCloudHorse(h,row);final={...final,local_updated_at:row.updated_at||h.local_updated_at||'',cloud_synced_at:row.updated_at||''};
@@ -517,7 +519,7 @@ let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;const b=$('installButton');if(b)b.classList.remove('hidden');const st=$('installStatus');if(st)st.textContent='Installation verfügbar';});
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;const b=$('installButton');if(b)b.classList.add('hidden');const st=$('installStatus');if(st)st.textContent='✅ HorseHub ist installiert';});
 async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Installationsdialog erscheint, öffne das Browser-Menü ⋮ und wähle „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null}
-async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.4',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
+async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.5',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
 </script>
