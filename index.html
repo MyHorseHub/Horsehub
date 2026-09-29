@@ -170,6 +170,13 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card"><h3>🖼️ Startseiten-Titelbild</h3><p class="muted">Wähle ein eigenes Foto für die „Willkommen bei HorseHub!“-Kachel. Nach der Auswahl kannst du es wie ein Pferdefoto verschieben und zoomen.</p><div class="upload-row"><label class="upload-btn">📷 Kamera<input type="file" accept="image/*" capture="environment" onchange="setHomeHeroImage(this)"></label><label class="upload-btn">🖼️ Galerie<input type="file" accept="image/*" onchange="setHomeHeroImage(this)"></label><button class="secondary" onclick="editHomeHeroImage()">✏️ Bildausschnitt bearbeiten</button><button class="secondary" onclick="removeHomeHeroImage()">Bild entfernen</button></div><div id="heroPhotoEditor" class="hidden"></div></div>
 <div class="card"><h3>🐴 Pferde auf der Startseite</h3><p class="muted">Lege fest, welche Pferde auf deiner Startseite angezeigt werden.</p><div id="horseVisibilitySettings"></div></div>
 <div class="card"><h3>💾 Daten</h3><p class="muted">Dieser Prototyp speichert Pferde, Fotos und Stallnotizen nur auf diesem Gerät bzw. in diesem Browser. Es gibt noch keine Cloud-Synchronisierung und kein echtes Teilen zwischen Nutzern.</p><button class="secondary" onclick="exportData()">Daten exportieren</button></div>
+
+<div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
+  <div style="font-size:18px;font-weight:800">HorseHub</div>
+  <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.8.5</div>
+</div>
+
 </section>
 
 <section id="notes" class="hidden"><div class="card"><h2>🎙️ Spracheingabe</h2><p class="muted">Beim ersten Start fragt dein Browser nach der Mikrofonfreigabe. Die Spracheingabe kann später auch direkt in Gesundheit, Fütterung und Training genutzt werden.</p><select id="horse"></select><br><br><div class="voice-row"><textarea id="note" placeholder="Zum Beispiel: Heute 45 Minuten trainiert …"></textarea><button class="mic" id="mic" onclick="toggleMicFor('note','micStatus','mic')">🎙️</button></div><div class="row"><span id="micStatus" class="muted">Mikrofon bereit</span><button class="secondary" onclick="clearNote()">Löschen</button><button onclick="saveNote()">Stallnotiz speichern</button></div></div><div id="savedNotes"></div></section>
