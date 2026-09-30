@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.11.1</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.11.2</div>
 </div>
 
 </section>
@@ -266,10 +266,31 @@ function isDataImage(src){return typeof src==='string'&&src.startsWith('data:ima
 function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const mime=(meta.match(/data:([^;]+)/)||[])[1]||'image/jpeg';const bin=atob(data);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new Blob([bytes],{type:mime})}
 function horsePhotoPath(cloudId){return `${horseHubCloudUser.id}/${cloudId}.jpg`}
 async function getHorsePhotoUrl(path){if(!path||!horseHubCloudUser)return '';const {data,error}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).createSignedUrl(path,HORSE_PHOTO_URL_TTL);if(error)throw error;return data?.signedUrl||''}
-async function syncHorsePhoto(h,cloudId){if(!horseHubCloudUser||!cloudId)return {path:h.photo_path||'',url:h.photo||''};const path=horsePhotoPath(cloudId);if(h.photo_removed){const oldPath=h.photo_path||path;const {error}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).remove([oldPath]);if(error&&error.statusCode!=='404')throw error;await supabaseClient.from('horses').update({photo_url:null,updated_at:new Date().toISOString()}).eq('id',cloudId).eq('owner_id',horseHubCloudUser.id);return {path:'',url:''}}
-if((h.photo_dirty||isDataImage(h.photo))&&isDataImage(h.photo)){const blob=dataUrlToBlob(h.photo);const {error}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).upload(path,blob,{upsert:true,contentType:'image/jpeg',cacheControl:'31536000'});if(error)throw error;const {error:dbError}=await supabaseClient.from('horses').update({photo_url:path,updated_at:new Date().toISOString()}).eq('id',cloudId).eq('owner_id',horseHubCloudUser.id);if(dbError)throw dbError;const url=await getHorsePhotoUrl(path);return {path,url}}
-if(h.photo_path){return {path:h.photo_path,url:await getHorsePhotoUrl(h.photo_path)}}
-return {path:'',url:''}}
+async function syncHorsePhoto(h,cloudId){
+  if(!horseHubCloudUser||!cloudId)return {path:h.photo_path||'',url:h.photo||''};
+  const path=horsePhotoPath(cloudId);
+  if(h.photo_removed){
+    const oldPath=h.photo_path||path;
+    const {error:photoError}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).remove([oldPath]);
+    if(photoError&&photoError.statusCode!=='404')throw photoError;
+    const {data:dbRow,error:dbError}=await supabaseClient.from('horses').update({photo_url:null,updated_at:new Date().toISOString()}).eq('id',cloudId).eq('owner_id',horseHubCloudUser.id).select('updated_at').maybeSingle();
+    if(dbError)throw dbError;
+    if(!dbRow)throw new Error('Pferdefoto konnte in der Cloud-Datenbank nicht aktualisiert werden. Prüfe die UPDATE-Berechtigung für horses.');
+    return {path:'',url:''}
+  }
+  if((h.photo_dirty||isDataImage(h.photo))&&isDataImage(h.photo)){
+    const blob=dataUrlToBlob(h.photo);
+    const {error}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).upload(path,blob,{upsert:true,contentType:'image/jpeg',cacheControl:'31536000'});
+    if(error)throw error;
+    const {data:dbRow,error:dbError}=await supabaseClient.from('horses').update({photo_url:path,updated_at:new Date().toISOString()}).eq('id',cloudId).eq('owner_id',horseHubCloudUser.id).select('updated_at').maybeSingle();
+    if(dbError)throw dbError;
+    if(!dbRow)throw new Error('Pferdefoto wurde hochgeladen, aber der Cloud-Datensatz konnte nicht aktualisiert werden. Prüfe die UPDATE-Berechtigung für horses.');
+    const url=await getHorsePhotoUrl(path);
+    return {path,url}
+  }
+  if(h.photo_path)return {path:h.photo_path,url:await getHorsePhotoUrl(h.photo_path)};
+  return {path:'',url:''}
+}
 async function insertHorseToCloud(h){
   if(!horseHubCloudUser||!h)throw new Error('Kein angemeldetes HorseHub-Konto');
   const cloudId=(h.cloud_id&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(h.cloud_id))?h.cloud_id:crypto.randomUUID();
@@ -374,7 +395,7 @@ function migrateLegacyHorseSyncMetadata(){
   // One-time migration for horses created by pre-1.11 builds. Those builds
   // could leave cloud_dirty/local_updated_at without a reliable cloud base,
   // causing a stale local snapshot to block a newer cloud pull.
-  const KEY='horsehub_sync_migration_111';
+  const KEY='horsehub_sync_migration_112';
   if(localStorage.getItem(KEY)==='1')return;
   try{
     const horses=getHorses();
@@ -557,7 +578,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 function getHorseDeletionTombstones(){try{return JSON.parse(localStorage.getItem('horse_delete_tombstones')||'{}')||{}}catch(e){return {}}}
 function markHorseDeletionTombstone(cloudId){if(!cloudId)return;const t=getHorseDeletionTombstones();t[cloudId]=new Date().toISOString();localStorage.setItem('horse_delete_tombstones',JSON.stringify(t))}
 function clearHorseDeletionTombstone(cloudId){if(!cloudId)return;const t=getHorseDeletionTombstones();delete t[cloudId];localStorage.setItem('horse_delete_tombstones',JSON.stringify(t))}
-async function deleteHorseFromCloud(cloudId){if(!horseHubCloudUser||!cloudId)return;try{const photoPath=horsePhotoPath(cloudId);const {error:photoError}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).remove([photoPath]);if(photoError&&photoError.statusCode!=='404')console.warn('Cloud-Pferdefoto konnte nicht gelöscht werden',photoError);const {error}=await supabaseClient.from('horses').delete().eq('id',cloudId).eq('owner_id',horseHubCloudUser.id);if(error)throw error;setCloudStatus('☁️ Pferd und Foto aus der Cloud gelöscht.')}catch(e){console.warn('Cloud-Pferd konnte nicht gelöscht werden',e);setCloudStatus('⚠️ Das Pferd wurde lokal gelöscht, konnte aber noch nicht vollständig aus der Cloud entfernt werden.',true)}}
+async function deleteHorseFromCloud(cloudId){if(!horseHubCloudUser||!cloudId)return false;try{const {data:existing,error:readError}=await supabaseClient.from('horses').select('id').eq('id',cloudId).eq('owner_id',horseHubCloudUser.id).maybeSingle();if(readError)throw readError;if(!existing){setCloudStatus('ℹ️ Das Pferd war in der Cloud bereits nicht mehr vorhanden.');return true}const {data:deleted,error}=await supabaseClient.from('horses').delete().eq('id',cloudId).eq('owner_id',horseHubCloudUser.id).select('id').maybeSingle();if(error)throw error;if(!deleted)throw new Error('Das Pferd konnte in der Cloud nicht gelöscht werden. Prüfe die DELETE-Berechtigung für horses.');const photoPath=horsePhotoPath(cloudId);const {error:photoError}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).remove([photoPath]);if(photoError&&photoError.statusCode!=='404')console.warn('Cloud-Pferdefoto konnte nach dem Löschen nicht entfernt werden',photoError);setCloudStatus('☁️ Pferd aus der Cloud gelöscht.');return true}catch(e){console.warn('Cloud-Pferd konnte nicht gelöscht werden',e);setCloudStatus(`⚠️ Pferd wurde nicht gelöscht: ${cloudErrorText(e)}`,true);return false}}
 
 let authMode='login';
 function setAuthMode(mode){authMode=mode;$('authLoginTab')?.classList.toggle('active',mode==='login');$('authSignupTab')?.classList.toggle('active',mode==='signup');$('authTitle').textContent=mode==='signup'?'Konto erstellen':'Anmelden';$('authSubtitle').textContent=mode==='signup'?'Erstelle dein persönliches HorseHub-Konto.':'Melde dich an, um HorseHub auf deinen Geräten nutzen zu können.';$('authNameWrap')?.classList.toggle('hidden',mode!=='signup');$('authSubmit').textContent=mode==='signup'?'Konto erstellen':'Anmelden';$('forgotPasswordBtn')?.classList.toggle('hidden',mode!=='login');clearAuthMessage();$('resendConfirmBtn')?.classList.add('hidden')}
@@ -740,7 +761,7 @@ async function saveHorse(){
  syncHorseToCloud(horse.id).catch(()=>{});
 }
 function toggleHorseVisibility(id){let hs=getHorses().map(h=>h.id===id?markHorseLocalChange({...h,visible:h.visible===false?true:false}):h);localStorage.setItem('horses',JSON.stringify(hs));renderHorses();queueHorseCloudSync(id)}
-async function deleteHorse(id){let h=getHorses().find(x=>x.id===id);if(!h||!confirm(`Möchtest du „${h.name}“ wirklich löschen?`))return;const cloudId=h.cloud_id||'';if(cloudId)markHorseDeletionTombstone(cloudId);setHorses(getHorses().filter(x=>x.id!==id));if(cloudId){await deleteHorseFromCloud(cloudId);clearHorseDeletionTombstone(cloudId)}}
+async function deleteHorse(id){let h=getHorses().find(x=>x.id===id);if(!h||!confirm(`Möchtest du „${h.name}“ wirklich löschen?`))return;const cloudId=h.cloud_id||'';if(cloudId){markHorseDeletionTombstone(cloudId);const deleted=await deleteHorseFromCloud(cloudId);if(!deleted)return;clearHorseDeletionTombstone(cloudId)}setHorses(getHorses().filter(x=>x.id!==id))}
 function newPlan(){let name=prompt('Name des Plans, z. B. „Futterplan Andalusier“');if(name){$('plansList').insertAdjacentHTML('afterbegin',`<div class="card"><h3>📋 ${escapeHtml(name)}</h3><p>Neuer gemeinsamer Plan – Inhalte können im nächsten Schritt bearbeitet und mit Personen geteilt werden.</p><span class="tag">👤 nur du</span></div>`)} }
 
 function saveEmergencyInfo(id){let h=getHorses().find(x=>x.id===id);if(!h)return;let emergency=$('emergencyText')?.value.trim()||'';let ownerName=document.querySelector("#pEmergency input[onchange*='ownerName']")?.value.trim()||h.ownerName||'';let ownerPhone=document.querySelector("#pEmergency input[onchange*='ownerPhone']")?.value.trim()||h.ownerPhone||'';let vetName=document.querySelector("#pEmergency input[onchange*='vetName']")?.value.trim()||h.vetName||'';let vetPhone=document.querySelector("#pEmergency input[onchange*='vetPhone']")?.value.trim()||h.vetPhone||'';let updated={...h,emergency,ownerName,ownerPhone,vetName,vetPhone};updated=markHorseLocalChange(updated);localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===id?updated:x)));renderHorses();renderHorseProfile(updated);queueHorseCloudSync(id);if($('emergencyVoiceStatus'))$('emergencyVoiceStatus').textContent='Notfallinformationen gespeichert ✓'}
