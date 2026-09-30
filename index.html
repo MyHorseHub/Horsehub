@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.19</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.20</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.19 – stabile 1.10.8 Basis + individuelle Fütterung */
+/* HorseHub 1.10.20 – Fütterung Speicher-/Sync-Fix auf stabiler 1.10.19 Basis */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -376,26 +376,52 @@ async function syncHorsesWithCloud(){
       }
     }
 
-    // 3) PERSIST THE LIST NOW. No photo operation and no local->cloud request
-    // is allowed to block the cloud horse list from appearing in the app.
+    // 3) PERSIST THE LIST NOW. Preserve any local edit that happened while
+    // the cloud list request was in flight. This is especially important for
+    // feeding/medication/health entries: a pageshow/visibility sync can start
+    // just before the user presses +Hinzufügen and must never restore its old snapshot.
+    const currentNow=getHorses();
+    const currentById=new Map(currentNow.map(h=>[h.id,h]));
+    const snapshotById=new Map(localBefore.map(h=>[h.id,h]));
     const seenLocal=new Set();
     const seenCloud=new Set();
     const finalList=[];
     for(const h of result){
       if(!h||seenLocal.has(h.id))continue;
       if(h.cloud_id&&seenCloud.has(h.cloud_id))continue;
-      seenLocal.add(h.id);
-      if(h.cloud_id)seenCloud.add(h.cloud_id);
-      finalList.push(h);
+      const current=currentById.get(h.id);
+      const snapshot=snapshotById.get(h.id);
+      const currentTs=new Date(current?.local_updated_at||0).getTime();
+      const snapshotTs=new Date(snapshot?.local_updated_at||0).getTime();
+      const changedDuringSync=!!current&&currentTs>snapshotTs;
+      const chosen=changedDuringSync?{...current,cloud_id:current.cloud_id||h.cloud_id||''}:{...h};
+      seenLocal.add(chosen.id);
+      if(chosen.cloud_id)seenCloud.add(chosen.cloud_id);
+      finalList.push(chosen);
+    }
+    // Also preserve a brand-new local horse created while the cloud request was running.
+    for(const current of currentNow){
+      if(seenLocal.has(current.id))continue;
+      const snapshot=snapshotById.get(current.id);
+      const currentTs=new Date(current.local_updated_at||0).getTime();
+      const snapshotTs=new Date(snapshot?.local_updated_at||0).getTime();
+      if(!snapshot || currentTs>snapshotTs){
+        if(current.cloud_id&&seenCloud.has(current.cloud_id))continue;
+        seenLocal.add(current.id);
+        if(current.cloud_id)seenCloud.add(current.cloud_id);
+        finalList.push(current);
+      }
     }
     localStorage.setItem('horses',JSON.stringify(finalList));
     renderHorses();
     renderHorseProfilesOnly();
     setCloudStatus(`☁️ Cloud: ${cloudRows.length} · Lokal: ${finalList.length} Pferde abgeglichen.`);
 
-    // 4) LOCAL -> CLOUD RETRY. Errors here must never undo the list above.
-    for(const local of unsyncedLocals){
+    // 4) LOCAL -> CLOUD RETRY. Re-read the current horse immediately before
+    // uploading so a just-added feeding entry cannot be replaced by the older snapshot.
+    for(const queued of unsyncedLocals){
       try{
+        const local=getHorses().find(x=>x.id===queued.id)||queued;
         if(local.cloud_id){
           const at=await updateHorseInCloud(local);
           setHorseLocalState(local.id,{cloud_synced_at:at,cloud_dirty:false});
@@ -494,7 +520,21 @@ function renderRoutines(){let el=$('routinesList');if(!el)return;let hs=getHorse
 function getDailyDone(){return JSON.parse(localStorage.getItem('dailyDone')||'{}')}
 function setDailyDone(key,done){let a=getDailyDone();a[key]=!!done;localStorage.setItem('dailyDone',JSON.stringify(a))}
 function toggleFeedingCustomField(){const type=$('feedType')?.value||'';const wrap=$('feedCustomWrap');const input=$('feedCustom');const label=$('feedCustomLabel');if(!wrap||!input)return;const needs=type==='Müsli'||type==='Sonstiges';wrap.classList.toggle('hidden',!needs);if(needs){label.textContent=type==='Müsli'?'Müsli-Bezeichnung':'Was wird gefüttert?';input.placeholder=type==='Müsli'?'z. B. Pavo Sport':'z. B. Rübenschnitzel, Luzerne, Karotten';}else{input.value=''}}
-function addStructuredFeeding(id){let h=getHorses().find(x=>x.id===id);if(!h)return;let type=$('feedType')?.value||'Sonstiges',custom= $('feedCustom')?.value.trim()||'',amount=$('feedAmount')?.value.trim()||'',unit=$('feedUnit')?.value||'kg',time=$('feedTime')?.value||'';if(!time){alert('Bitte eine Uhrzeit angeben.');return}if((type==='Müsli'||type==='Sonstiges')&&!custom){alert(type==='Müsli'?'Bitte eine Müsli-Bezeichnung eingeben.':'Bitte eingeben, was gefüttert wird.');return}let displayType=(type==='Müsli'||type==='Sonstiges')&&custom?`${type}: ${custom}`:type;let label=amount?`${displayType} · ${amount} ${unit}`:displayType;let arr=[...(h.feedingTimes||[])];arr.push({id:'ft'+Date.now()+'-'+Math.random().toString(36).slice(2,7),label,type,custom,amount,unit,time,enabled:true});profileSave(id,'feedingTimes',arr);requestNotifications()}
+function addStructuredFeeding(id){
+  let h=getHorses().find(x=>x.id===id);if(!h)return;
+  let type=$('feedType')?.value||'Sonstiges',custom=$('feedCustom')?.value.trim()||'',amount=$('feedAmount')?.value.trim()||'',unit=$('feedUnit')?.value||'kg',time=$('feedTime')?.value||'';
+  if(!time){alert('Bitte eine Uhrzeit angeben.');return}
+  if((type==='Müsli'||type==='Sonstiges')&&!custom){alert(type==='Müsli'?'Bitte eine Müsli-Bezeichnung eingeben.':'Bitte eingeben, was gefüttert wird.');return}
+  let displayType=(type==='Müsli'||type==='Sonstiges')&&custom?`${type}: ${custom}`:type;
+  let label=amount?`${displayType} · ${amount} ${unit}`:displayType;
+  const entry={id:'ft'+Date.now()+'-'+Math.random().toString(36).slice(2,7),label,type,custom,amount,unit,time,enabled:true};
+  const arr=[...(h.feedingTimes||[]),entry];
+  // Explicitly mark this as a local mutation before any background list sync
+  // can run. The sync layer above preserves edits made during its request.
+  profileSave(id,'feedingTimes',arr);
+  if($('feedCustom'))$('feedCustom').value='';
+  requestNotifications();
+}
 function addFeedingTime(id){addStructuredFeeding(id)}
 function removeFeedingTime(id,fid){let h=getHorses().find(x=>x.id===id);if(!h)return;let arr=(h.feedingTimes||[]).filter(x=>x.id!==fid);profileSave(id,'feedingTimes',arr)}
 function renderFeedingTimes(h){let a=h.feedingTimes||[];if(!a.length)return '<div class="empty">Noch keine festen Fütterungen. Lege z. B. Heu um 07:00 und Kraftfutter um 18:00 an.</div>';return '<div class="entry-list">'+a.slice().sort((x,y)=>(x.time||'').localeCompare(y.time||'')).map(f=>`<div class="entry"><div class="entry-head"><b>🥕 ${escapeHtml(f.time)} · ${escapeHtml(f.label||f.type||'Futter')}</b><button class="smallbtn danger" onclick="removeFeedingTime('${h.id}','${f.id}')">Löschen</button></div><div class="muted">Täglich · erscheint automatisch in „Heute“ und kann eine Benachrichtigung auslösen.</div></div>`).join('')+'</div>'}
@@ -710,7 +750,7 @@ let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;const b=$('installButton');if(b)b.classList.remove('hidden');const st=$('installStatus');if(st)st.textContent='Installation verfügbar';});
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;const b=$('installButton');if(b)b.classList.add('hidden');const st=$('installStatus');if(st)st.textContent='✅ HorseHub ist installiert';});
 async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Installationsdialog erscheint, öffne das Browser-Menü ⋮ und wähle „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null}
-async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.19',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
+async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.20',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleDailyReset();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
 </script>
