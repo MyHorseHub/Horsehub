@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.11.0</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.11.1</div>
 </div>
 
 </section>
@@ -370,6 +370,27 @@ async function syncHorseToCloud(id){
   }
 }
 function queueHorseCloudSync(id){if(!horseHubCloudUser||!id)return;clearTimeout(horseHubCloudTimers.get(id));const t=setTimeout(()=>{if(horseHubCloudSyncing){clearTimeout(horseHubCloudTimers.get(id));horseHubCloudTimers.set(id,setTimeout(()=>syncHorseToCloud(id),1200));return}syncHorseToCloud(id)},350);horseHubCloudTimers.set(id,t)}
+function migrateLegacyHorseSyncMetadata(){
+  // One-time migration for horses created by pre-1.11 builds. Those builds
+  // could leave cloud_dirty/local_updated_at without a reliable cloud base,
+  // causing a stale local snapshot to block a newer cloud pull.
+  const KEY='horsehub_sync_migration_111';
+  if(localStorage.getItem(KEY)==='1')return;
+  try{
+    const horses=getHorses();
+    let changed=false;
+    const migrated=horses.map(h=>{
+      if(!h?.cloud_id)return h;
+      const legacy=!h._cloud_base_details;
+      if(!legacy)return h;
+      changed=true;
+      return {...h,cloud_dirty:false,local_updated_at:'',cloud_synced_at:'',_cloud_base_details:undefined};
+    });
+    if(changed)localStorage.setItem('horses',JSON.stringify(migrated));
+    localStorage.setItem(KEY,'1');
+  }catch(e){console.warn('Sync-Migration konnte nicht vollständig durchgeführt werden',e)}
+}
+
 function hasUnsentLocalHorseChanges(h){
   if(!h)return false;
   if(!h.cloud_id)return true;
@@ -447,6 +468,7 @@ async function syncCurrentHorseFromCloud(localId){
 
 async function syncHorsesWithCloud(){
   if(!horseHubCloudUser||horseHubCloudSyncing)return;
+  migrateLegacyHorseSyncMetadata();
   horseHubCloudSyncing=true;
   setCloudStatus('☁️ Cloud wird mit den lokalen Pferden abgeglichen …');
   try{
