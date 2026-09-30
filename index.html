@@ -205,7 +205,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.12.0 – Stable Sync: Horses + Routines + Daily Tasks */
+/* HorseHub 1.12.1 – Stable Sync: Horses + Routines + Daily Tasks */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -489,6 +489,7 @@ async function syncCurrentHorseFromCloud(localId){
 
 async function syncHorsesWithCloud(){
   if(!horseHubCloudUser||horseHubCloudSyncing)return;
+  const syncGeneration=horseHubSyncGeneration;
   migrateLegacyHorseSyncMetadata();
   horseHubCloudSyncing=true;
   setCloudStatus('☁️ Cloud wird mit den lokalen Pferden abgeglichen …');
@@ -605,7 +606,7 @@ async function handleForgotPassword(){const email=$('authEmail').value.trim();if
 function showAuthenticated(session,user){horseHubCloudUser=user;$('authLoading')?.classList.add('hidden');$('authGate')?.classList.add('hidden');$('horsehubApp')?.classList.remove('hidden');if($('accountEmail'))$('accountEmail').textContent=user.email||'–';setAuthMode('login');renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();syncHorsesWithCloud();syncRoutinesAndDailyTasks()}
 function showAuthGate(){$('horsehubApp')?.classList.add('hidden');$('authLoading')?.classList.add('hidden');$('authGate')?.classList.remove('hidden');setAuthMode('login')}
 
-/* 1.12.0 – Cloud sync for routines and daily task completion */
+/* 1.12.1 – Cloud sync for routines and daily task completion */
 let routineCloudSyncing=false;
 let routineCloudTimer=null;
 let dailyCloudSyncing=false;
