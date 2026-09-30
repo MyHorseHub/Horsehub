@@ -542,7 +542,7 @@ function addStructuredFeeding(id){
   // can run. The sync layer above preserves edits made during its request.
   profileSave(id,'feedingTimes',arr);
   if($('feedCustom'))$('feedCustom').value='';
-  requestNotifications();
+  // Notifications are intentionally decoupled from feeding saves.
 }
 function addFeedingTime(id){addStructuredFeeding(id)}
 function removeFeedingTime(id,fid){let h=getHorses().find(x=>x.id===id);if(!h)return;let arr=(h.feedingTimes||[]).filter(x=>x.id!==fid);profileSave(id,'feedingTimes',arr)}
