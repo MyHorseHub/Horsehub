@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.26</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.28</div>
 </div>
 
 </section>
@@ -205,7 +205,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.10.27 – lokaler Cloud-Pull-Schutz */
+/* HorseHub 1.10.28 – lokaler Cloud-Pull-Schutz */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -412,10 +412,17 @@ async function syncHorsesWithCloud(){
         const localDirty=hasUnsentLocalHorseChanges(local);
         const lt=new Date(local.local_updated_at||0).getTime();
         const ct=new Date(row.updated_at||0).getTime();
-        // Resolve the source of truth by timestamps. A newer cloud row must
-        // be pulled even if an older build left cloud_dirty/local sync state
-        // behind. Only a genuinely newer local snapshot is uploaded back.
-        if(lt>ct){
+        const syncedAt=new Date(local.cloud_synced_at||0).getTime();
+        // If the cloud changed after our last confirmed sync, that remote
+        // change must not be overwritten by the stale local snapshot.
+        // This is the critical cross-device path (e.g. feeding added in
+        // another browser/device). Only a genuinely newer local edit wins.
+        const cloudChangedSinceSync=!!local.cloud_synced_at && ct>syncedAt;
+        if(cloudChangedSinceSync && ct>=lt){
+          result.push({...mergeCloudHorse(local,row),cloud_id:row.id,local_updated_at:row.updated_at||'',cloud_synced_at:row.updated_at||'',cloud_dirty:false});
+        }else if(localDirty){
+          // No newer remote snapshot exists, so the unsent local edit can
+          // safely remain authoritative and be retried below.
           result.push({...local,cloud_id:row.id});
           unsyncedLocals.push({...local,cloud_id:row.id});
         }else{
