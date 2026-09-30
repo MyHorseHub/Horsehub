@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.10</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.11</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.10 – stabile 1.10.8 Basis + individuelle Fütterung */
+/* HorseHub 1.10.11 – stabile 1.10.8 Basis + individuelle Fütterung */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -517,7 +517,28 @@ function medicationDays(m){return Array.isArray(m.days)&&m.days.length?m.days:[0
 const medicationDayNames=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
 function renderMedications(h){let a=h.medications||[];if(!a.length)return '<div class="empty">Noch keine Medikamente hinterlegt.</div>';return '<div class="entry-list">'+a.map(m=>{let ds=medicationDays(m).map(i=>medicationDayNames[i]).join(', ');return `<div class="entry"><b>💊 ${escapeHtml(m.name)}</b><div class="muted">${escapeHtml(m.dose||'Dosierung offen')} · ${escapeHtml(m.time||'Zeit offen')}${m.reminderTime?' · 🔔 '+escapeHtml(m.reminderTime):''}</div><div class="muted" style="margin-top:4px">Tage: ${escapeHtml(ds)}</div><div class="entry-actions"><button class="smallbtn danger" onclick="removeMedication('${h.id}','${m.id}')">Löschen</button></div></div>`}).join('')+'</div>'}
 function renderMedicationWeek(h){let a=h.medications||[];return `<div class="card" style="margin-top:12px"><div class="section-head"><div><h3>📅 Medikamenten-Wochenplan</h3><div class="muted">Trage Medikamente gezielt in die einzelnen Wochentage ein. Ältere Medikamente ohne Tagesangabe gelten weiterhin täglich.</div></div></div><div class="med-week-grid">${medicationDayNames.map((day,i)=>{let meds=a.filter(m=>medicationDays(m).includes(i));return `<div class="med-day-card"><h4>${day}</h4>${meds.length?meds.map(m=>`<div class="med-line"><b>💊 ${escapeHtml(m.name)}</b><br><span class="muted">${escapeHtml(m.time||m.reminderTime||'Zeit offen')}${m.dose?' · '+escapeHtml(m.dose):''}</span></div>`).join(''):'<div class="muted">Keine Medikamente</div>'}<button class="smallbtn med-add" onclick="addMedication('${h.id}',${i})">+ für ${day}</button></div>`}).join('')}</div></div>`}
-function removeMedication(id,mid){let h=getHorses().find(x=>x.id===id);if(!h)return;profileSave(id,'medications',(h.medications||[]).filter(m=>m.id!==mid))}
+async function removeMedication(id,mid){
+  const h=getHorses().find(x=>x.id===id);
+  if(!h)return;
+  const next=(h.medications||[]).filter(m=>m.id!==mid);
+  if(next.length===(h.medications||[]).length)return;
+  const updated=markHorseLocalChange({...h,medications:next});
+  const hs=getHorses().map(x=>x.id===id?updated:x);
+  localStorage.setItem('horses',JSON.stringify(hs));
+  renderHorses();
+  renderHorseProfile(updated);
+  // The deletion is a real horse-data change. Push this exact current snapshot
+  // immediately so a queued/older refresh cannot restore the removed medication.
+  if(horseHubCloudUser){
+    try{
+      await syncHorseToCloud(id);
+      const latest=getHorses().find(x=>x.id===id);
+      if(latest)renderHorseProfile(latest);
+    }catch(e){
+      console.warn('Medikament konnte nach dem Löschen nicht synchronisiert werden',e);
+    }
+  }
+}
 function callNumber(id,field){let h=getHorses().find(x=>x.id===id),n=(h?.[field]||'').trim();if(!n){alert('Bitte zuerst eine Telefonnummer hinterlegen.');return}window.location.href='tel:'+n.replace(/[^+\d]/g,'')}
 let calendarDate=new Date();
 function localISODate(d=new Date()){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`}
@@ -591,7 +612,7 @@ let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;const b=$('installButton');if(b)b.classList.remove('hidden');const st=$('installStatus');if(st)st.textContent='Installation verfügbar';});
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;const b=$('installButton');if(b)b.classList.add('hidden');const st=$('installStatus');if(st)st.textContent='✅ HorseHub ist installiert';});
 async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Installationsdialog erscheint, öffne das Browser-Menü ⋮ und wähle „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null}
-async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.9',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
+async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.11',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleDailyReset();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
 </script>
