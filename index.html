@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.14</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.15</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.14 – stabile 1.10.8 Basis + individuelle Fütterung */
+/* HorseHub 1.10.15 – stabile 1.10.8 Basis + individuelle Fütterung */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -328,7 +328,7 @@ async function syncHorsesWithCloud(){
       if(!row){
         const matches=cloudByLocalId.get(h.id)||[];
         row=oldestRow(matches);
-        if(row){cloudId=row.id;h={...h,cloud_id:cloudId};local=local.map(x=>x.id===h.id?h:x);}
+        if(row){cloudId=row.id;clearHorseDeletionTombstone(cloudId);h={...h,cloud_id:cloudId};local=local.map(x=>x.id===h.id?h:x);}
       }
 
       if(cloudId&&row){
@@ -375,8 +375,13 @@ async function syncHorsesWithCloud(){
 
     // Add cloud-only horses.
     const known=new Set(local.map(h=>h.cloud_id).filter(Boolean));
+    const deletionTombstones=getHorseDeletionTombstones();
     for(const row of cloudRows){
       if(known.has(row.id))continue;
+      if(deletionTombstones[row.id]){
+        try{await deleteHorseFromCloud(row.id)}catch(e){}
+        continue;
+      }
       const d=row.details&&typeof row.details==='object'?row.details:{};
       const byLocalId=d._local_id?local.find(h=>h.id===d._local_id):null;
       if(byLocalId){if(!byLocalId.cloud_id)local=local.map(h=>h.id===byLocalId.id?{...h,cloud_id:row.id,cloud_synced_at:row.updated_at||'',cloud_dirty:false}:h);continue;}
@@ -412,6 +417,9 @@ async function syncHorsesWithCloud(){
   }finally{horseHubCloudSyncing=false;}
 }
 
+function getHorseDeletionTombstones(){try{return JSON.parse(localStorage.getItem('horse_delete_tombstones')||'{}')||{}}catch(e){return {}}}
+function markHorseDeletionTombstone(cloudId){if(!cloudId)return;const t=getHorseDeletionTombstones();t[cloudId]=new Date().toISOString();localStorage.setItem('horse_delete_tombstones',JSON.stringify(t))}
+function clearHorseDeletionTombstone(cloudId){if(!cloudId)return;const t=getHorseDeletionTombstones();delete t[cloudId];localStorage.setItem('horse_delete_tombstones',JSON.stringify(t))}
 async function deleteHorseFromCloud(cloudId){if(!horseHubCloudUser||!cloudId)return;try{const photoPath=horsePhotoPath(cloudId);const {error:photoError}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).remove([photoPath]);if(photoError&&photoError.statusCode!=='404')console.warn('Cloud-Pferdefoto konnte nicht gelöscht werden',photoError);const {error}=await supabaseClient.from('horses').delete().eq('id',cloudId).eq('owner_id',horseHubCloudUser.id);if(error)throw error;setCloudStatus('☁️ Pferd und Foto aus der Cloud gelöscht.')}catch(e){console.warn('Cloud-Pferd konnte nicht gelöscht werden',e);setCloudStatus('⚠️ Das Pferd wurde lokal gelöscht, konnte aber noch nicht vollständig aus der Cloud entfernt werden.',true)}}
 
 let authMode='login';
@@ -573,12 +581,15 @@ async function saveHorse(){
  let horses=getHorses(),id=$('horseId').value,existing=horses.find(h=>h.id===id),photo=existing?.photo||'';
  const dirty=horsePhotoDirty,removed=horsePhotoRemoved;let nextPhoto=removed?'':(horsePhotoOptimizedData||photo);
  let horse={id:id||('h'+Date.now()),cloud_id:existing?.cloud_id||'',local_updated_at:new Date().toISOString(),name,breed:$('horseBreed').value.trim(),age:$('horseAge').value.trim(),sex:$('horseSex').value,color:$('horseColor').value.trim(),notes:$('horseNotes').value.trim(),boxBedding:$('boxBedding').value.trim(),boxMucking:$('boxMucking').value.trim(),boxMuckAmount:$('boxMuckAmount').value.trim(),outdoorType:$('outdoorType').value.trim(),outdoorFrom:$('outdoorFrom').value,outdoorTo:$('outdoorTo').value,outdoorFrequency:$('outdoorFrequency').value.trim(),outdoorCare:$('outdoorCare').value.trim(),outdoorCareNotes:$('outdoorCareNotes').value.trim(),boxCare:$('boxCare').value.trim(),photo:nextPhoto,photo_path:removed?'':(existing?.photo_path||''),photo_dirty:dirty,photo_removed:removed,visible:$('horseVisible').checked,health:existing?.health||'',feeding:existing?.feeding||'',training:existing?.training||'',emergency:existing?.emergency||'',ownerPhone:existing?.ownerPhone||'',vetPhone:existing?.vetPhone||'',feedingTimes:Array.isArray(existing?.feedingTimes)?existing.feedingTimes:[],medications:Array.isArray(existing?.medications)?existing.medications:[],documents:Array.isArray(existing?.documents)?existing.documents:[],todayEntries:Array.isArray(existing?.todayEntries)?existing.todayEntries:[],healthEntries:Array.isArray(existing?.healthEntries)?existing.healthEntries:[],trainingEntries:Array.isArray(existing?.trainingEntries)?existing.trainingEntries:[],healthAttachments:Array.isArray(existing?.healthAttachments)?existing.healthAttachments:[],documentAttachments:Array.isArray(existing?.documentAttachments)?existing.documentAttachments:[]};
+ horse=markHorseLocalChange(horse);
  if(id)horses=horses.map(h=>h.id===id?horse:h);else horses.push(horse);
  try{localStorage.setItem('horses',JSON.stringify(horses))}catch(e){alert('Der Browser-Speicher ist voll. Bitte ein kleineres Foto wählen.');return}
- cropState=null;horsePhotoOptimizedData=null;horsePhotoDirty=false;horsePhotoRemoved=false;setHorseSaveEnabled(true);closeHorseForm();renderHorses();queueHorseCloudSync(horse.id)
+ cropState=null;horsePhotoOptimizedData=null;horsePhotoDirty=false;horsePhotoRemoved=false;setHorseSaveEnabled(true);closeHorseForm();renderHorses();
+ // New and edited horses are persisted locally first, then synced immediately.
+ syncHorseToCloud(horse.id).catch(()=>{});
 }
 function toggleHorseVisibility(id){let hs=getHorses().map(h=>h.id===id?markHorseLocalChange({...h,visible:h.visible===false?true:false}):h);localStorage.setItem('horses',JSON.stringify(hs));renderHorses();queueHorseCloudSync(id)}
-function deleteHorse(id){let h=getHorses().find(x=>x.id===id);if(!h||!confirm(`Möchtest du „${h.name}“ wirklich löschen?`))return;setHorses(getHorses().filter(x=>x.id!==id));if(h.cloud_id)deleteHorseFromCloud(h.cloud_id)}
+async function deleteHorse(id){let h=getHorses().find(x=>x.id===id);if(!h||!confirm(`Möchtest du „${h.name}“ wirklich löschen?`))return;const cloudId=h.cloud_id||'';if(cloudId)markHorseDeletionTombstone(cloudId);setHorses(getHorses().filter(x=>x.id!==id));if(cloudId){await deleteHorseFromCloud(cloudId);clearHorseDeletionTombstone(cloudId)}}
 function newPlan(){let name=prompt('Name des Plans, z. B. „Futterplan Andalusier“');if(name){$('plansList').insertAdjacentHTML('afterbegin',`<div class="card"><h3>📋 ${escapeHtml(name)}</h3><p>Neuer gemeinsamer Plan – Inhalte können im nächsten Schritt bearbeitet und mit Personen geteilt werden.</p><span class="tag">👤 nur du</span></div>`)} }
 
 function saveEmergencyInfo(id){let h=getHorses().find(x=>x.id===id);if(!h)return;let emergency=$('emergencyText')?.value.trim()||'';let ownerName=document.querySelector("#pEmergency input[onchange*='ownerName']")?.value.trim()||h.ownerName||'';let ownerPhone=document.querySelector("#pEmergency input[onchange*='ownerPhone']")?.value.trim()||h.ownerPhone||'';let vetName=document.querySelector("#pEmergency input[onchange*='vetName']")?.value.trim()||h.vetName||'';let vetPhone=document.querySelector("#pEmergency input[onchange*='vetPhone']")?.value.trim()||h.vetPhone||'';let updated={...h,emergency,ownerName,ownerPhone,vetName,vetPhone};updated=markHorseLocalChange(updated);localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===id?updated:x)));renderHorses();renderHorseProfile(updated);queueHorseCloudSync(id);if($('emergencyVoiceStatus'))$('emergencyVoiceStatus').textContent='Notfallinformationen gespeichert ✓'}
@@ -685,7 +696,7 @@ let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;const b=$('installButton');if(b)b.classList.remove('hidden');const st=$('installStatus');if(st)st.textContent='Installation verfügbar';});
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;const b=$('installButton');if(b)b.classList.add('hidden');const st=$('installStatus');if(st)st.textContent='✅ HorseHub ist installiert';});
 async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Installationsdialog erscheint, öffne das Browser-Menü ⋮ und wähle „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null}
-async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.14',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
+async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.15',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleDailyReset();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
 </script>
