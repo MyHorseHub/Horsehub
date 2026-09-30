@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.28</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.29</div>
 </div>
 
 </section>
@@ -205,7 +205,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.10.28 – lokaler Cloud-Pull-Schutz */
+/* HorseHub 1.10.29 – lokaler Cloud-Pull-Schutz */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -496,15 +496,46 @@ async function syncHorsesWithCloud(){
     renderHorseProfilesOnly();
     setCloudStatus(`☁️ Cloud: ${cloudRows.length} · Lokal: ${finalList.length} Pferde abgeglichen.`);
 
-    // 4) LOCAL -> CLOUD RETRY. Re-read the current horse immediately before
-    // uploading so a just-added feeding entry cannot be replaced by the older snapshot.
+    // 4) LOCAL -> CLOUD RETRY.
+    // IMPORTANT: before retrying an existing cloud horse, re-read the current
+    // cloud row. A different browser/device may have changed it after the list
+    // query started. A stale local snapshot must NEVER overwrite that newer
+    // remote change merely because cloud_dirty was already set locally.
     for(const queued of unsyncedLocals){
       try{
         const local=getHorses().find(x=>x.id===queued.id)||queued;
         if(local.cloud_id){
+          const {data:remote,error:remoteError}=await supabaseClient.from('horses')
+            .select('id,details,updated_at')
+            .eq('id',local.cloud_id)
+            .eq('owner_id',horseHubCloudUser.id)
+            .maybeSingle();
+          if(remoteError)throw remoteError;
+
+          const localSyncedTs=new Date(local.cloud_synced_at||0).getTime();
+          const localEditTs=new Date(local.local_updated_at||0).getTime();
+          const remoteTs=new Date(remote?.updated_at||0).getTime();
+
+          // Remote changed since the last confirmed sync, while this local
+          // record has not been edited after that sync: keep the remote data.
+          if(remote && remoteTs>localSyncedTs && localEditTs<=localSyncedTs){
+            const merged={...mergeCloudHorse(local,remote),cloud_id:remote.id,
+              local_updated_at:remote.updated_at||'',cloud_synced_at:remote.updated_at||'',cloud_dirty:false};
+            const latest=getHorses().find(x=>x.id===local.id);
+            if(latest && (latest.local_updated_at||'')===(local.local_updated_at||'')){
+              localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===local.id?merged:x)));
+            }
+            continue;
+          }
+
+          // Only a genuinely newer local edit may overwrite the current cloud
+          // row. Otherwise do not perform the retry at all.
+          if(!remote || localEditTs<=localSyncedTs)continue;
+
           const at=await updateHorseInCloud(local);
           setHorseLocalState(local.id,{cloud_synced_at:at,cloud_dirty:false});
         }else{
+          // A genuinely local-only horse has no remote row to protect.
           const created=await insertHorseToCloud(local);
           saveHorseCloudId(local.id,created.cloudId,created.updatedAt);
         }
