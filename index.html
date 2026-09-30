@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.24</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.25</div>
 </div>
 
 </section>
@@ -199,7 +199,13 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.24 – lokaler Änderungs-Vorrang im Sync */
+// Monotonic local-edit guards. Any cloud request started before a local edit
+// becomes stale and is forbidden from writing its older snapshot back locally.
+const horseHubLocalEditVersions=new Map();
+function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
+function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
+
+/* HorseHub 1.10.25 – harter Schutz vor veralteten Cloud-Antworten */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -294,10 +300,17 @@ async function syncCurrentHorseFromCloud(localId){
   if(!horseHubCloudUser||!localId||horseHubCloudSyncing)return;
   const localHorse=getHorses().find(x=>x.id===localId);
   if(!localHorse)return;
+  const requestLocalEditVersion=horseLocalEditVersion(localId);
+  const requestLocalUpdatedAt=localHorse.local_updated_at||'';
   let query=supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id);
   if(localHorse.cloud_id) query=query.eq('id',localHorse.cloud_id); else query=query.filter('details->>_local_id','eq',localId);
   const {data,error}=await query.maybeSingle();
   if(error)throw error;
+  // A local edit made while this request was in flight invalidates the response.
+  const nowAfterRead=getHorses().find(x=>x.id===localId);
+  if(!nowAfterRead || horseLocalEditVersion(localId)!==requestLocalEditVersion || (nowAfterRead.local_updated_at||'')!==requestLocalUpdatedAt){
+    return;
+  }
   if(!data){
     // If the horse existed in the cloud and there has been no local change
     // since the last successful sync, a missing cloud row means it was
@@ -333,6 +346,9 @@ async function syncCurrentHorseFromCloud(localId){
     final={...mergeCloudHorse(localHorse,data),cloud_synced_at:data.updated_at||synced,cloud_dirty:false};
   }
   const latestNow=getHorses().find(x=>x.id===localId);
+  if(!latestNow || horseLocalEditVersion(localId)!==requestLocalEditVersion || (latestNow.local_updated_at||'')!==requestLocalUpdatedAt){
+    return;
+  }
   // Do not overwrite a newer local edit made while this request was in flight.
   const latestTs=new Date(latestNow?.local_updated_at||0).getTime();
   const finalTs=new Date(final?.local_updated_at||0).getTime();
@@ -539,11 +555,11 @@ $('homeEmpty')?.classList.toggle('hidden',horses.length>0);$('horseList').innerH
 $('horseVisibilitySettings').innerHTML=horses.map(h=>`<label class="check"><input type="checkbox" ${h.visible!==false?'checked':''} onchange="toggleHorseVisibility('${h.id}')"><span><b>${escapeHtml(h.name)}</b><br><span class="muted">Auf der Startseite anzeigen</span></span></label>`).join('')||'<p>Noch keine Pferde vorhanden.</p>';
 $('horse').innerHTML=horses.map(h=>`<option>${escapeHtml(h.name)}</option>`).join('');}
 async function openHorseProfile(id){window.currentHorseProfileId=id;show('horseProfile');let h=getHorses().find(x=>x.id===id);if(!h)return;renderHorseProfile(h);window.scrollTo({top:0,behavior:'smooth'});if(horseHubCloudUser){try{await syncCurrentHorseFromCloud(id);let fresh=getHorses().find(x=>x.id===id);if(fresh&&window.currentHorseProfileId===id)renderHorseProfile(fresh)}catch(e){console.warn('Aktueller Pferde-Datensatz konnte nicht aktualisiert werden',e)}}}
-function profileSave(id,field,value){let hs=getHorses().map(h=>h.id===id?markHorseLocalChange({...h,[field]:value}):h);localStorage.setItem('horses',JSON.stringify(hs));renderHorses();renderHorseProfile(hs.find(h=>h.id===id));queueHorseCloudSync(id)}
+function profileSave(id,field,value){bumpHorseLocalEditVersion(id);let hs=getHorses().map(h=>h.id===id?markHorseLocalChange({...h,[field]:value}):h);localStorage.setItem('horses',JSON.stringify(hs));renderHorses();renderHorseProfile(hs.find(h=>h.id===id));queueHorseCloudSync(id)}
 function addProfileEntry(id,type){let h=getHorses().find(x=>x.id===id);if(!h)return;let title=prompt(type==='documents'?'Titel des Dokuments / Befunds':'Bezeichnung');if(!title?.trim())return;let text=prompt(type==='documents'?'Kurzbeschreibung oder Hinweis':'Details / Inhalt');let arr=Array.isArray(h[type])?[...h[type]]:[];arr.unshift({id:'e'+Date.now(),title:title.trim(),text:(text||'').trim(),date:new Date().toLocaleDateString('de-DE')});profileSave(id,type,arr)}
 function removeProfileEntry(id,type,entryId){let h=getHorses().find(x=>x.id===id);if(!h)return;let arr=(h[type]||[]).filter(e=>e.id!==entryId);profileSave(id,type,arr)}
 function editProfileEntry(id,type,entryId){let h=getHorses().find(x=>x.id===id),e=(h?.[type]||[]).find(x=>x.id===entryId);if(!e)return;let title=prompt('Bezeichnung',e.title);if(!title?.trim())return;let text=prompt('Details / Inhalt',e.text||'');let arr=(h[type]||[]).map(x=>x.id===entryId?{...x,title:title.trim(),text:(text||'').trim()}:x);profileSave(id,type,arr)}
-function saveHorseData(h){let hs=getHorses().map(x=>x.id===h.id?markHorseLocalChange(h):x);localStorage.setItem('horses',JSON.stringify(hs));queueHorseCloudSync(h.id)}
+function saveHorseData(h){bumpHorseLocalEditVersion(h.id);let hs=getHorses().map(x=>x.id===h.id?markHorseLocalChange(h):x);localStorage.setItem('horses',JSON.stringify(hs));queueHorseCloudSync(h.id)}
 function renderAttachmentCards(h,type){let arr=type==='health'?(h.healthAttachments||[]):(h.documentAttachments||[]);if(!arr.length)return '';return `<div class="attachment-grid">${arr.map(a=>`<div class="attachment-card"><img src="${a.data}" alt="${escapeHtml(a.title||'Dokument')}" loading="lazy"><b>${escapeHtml(a.title||'Dokument')}</b><div class="muted">${escapeHtml(a.date||'')}</div><button class="smallbtn danger" onclick="removeAttachment('${h.id}','${type}','${a.id}')">🗑️ Löschen</button></div>`).join('')}</div>`}
 function renderHealthAttachments(h){return renderAttachmentCards(h,'health')}
 function renderDocumentAttachments(h){return renderAttachmentCards(h,'documents')}
