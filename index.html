@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.11.2</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.11.3</div>
 </div>
 
 </section>
@@ -205,7 +205,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.11.0 – Stable Sync: Cloud-Base + konfliktarmer Merge */
+/* HorseHub 1.12.0 – Stable Sync: Horses + Routines + Daily Tasks */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -496,7 +496,14 @@ async function syncHorsesWithCloud(){
     try{const refreshed=await supabaseClient.auth.refreshSession();if(refreshed?.data?.user)horseHubCloudUser=refreshed.data.user;}catch(e){console.warn('Session-Refresh fehlgeschlagen',e)}
     const {data,error}=await supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id).order('created_at',{ascending:true});
     if(error)throw error;
-    const cloudRows=Array.isArray(data)?data:[];
+    const allCloudRows=Array.isArray(data)?data:[];
+    const tombstones=getHorseDeletionTombstones();
+    // A deletion that has already been confirmed in the cloud gets a short-lived
+    // tombstone so an in-flight/stale cloud response cannot resurrect the horse.
+    const cloudRows=allCloudRows.filter(row=>!tombstones[row.id]);
+    for(const tid of Object.keys(tombstones)){
+      if(!allCloudRows.some(row=>row.id===tid))clearHorseDeletionTombstone(tid);
+    }
     const localBefore=getHorses();
     const localById=new Map(localBefore.map(h=>[h.id,h]));
     const localByCloudId=new Map(localBefore.filter(h=>h.cloud_id).map(h=>[h.cloud_id,h]));
@@ -531,6 +538,10 @@ async function syncHorsesWithCloud(){
       if(hasUnsentLocalHorseChanges(local))finalList.push(local);
       // A clean cloud-linked horse missing from the cloud stays deleted locally.
     }
+    // A destructive operation (for example deleting a horse) may have happened
+    // while this cloud query was in flight. Never let its stale response restore
+    // deleted local data.
+    if(syncGeneration!==horseHubSyncGeneration)return;
     // Preserve edits created while the cloud query was in flight.
     const currentNow=getHorses();
     const snapshotById=new Map(localBefore.map(h=>[h.id,h]));
@@ -567,13 +578,14 @@ async function syncHorsesWithCloud(){
   }finally{horseHubCloudSyncing=false}
 }
 
+let horseHubSyncGeneration=0;
 let horseHubSyncResumeTimer=null;
 function scheduleHorseListRefresh(){
   clearTimeout(horseHubSyncResumeTimer);
   horseHubSyncResumeTimer=setTimeout(()=>syncHorsesWithCloud(),250);
 }
-window.addEventListener('pageshow',()=>{if(horseHubCloudUser)scheduleHorseListRefresh()});
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&horseHubCloudUser)scheduleHorseListRefresh()});
+window.addEventListener('pageshow',()=>{if(horseHubCloudUser){scheduleHorseListRefresh();queueRoutineCloudSync()}});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&horseHubCloudUser){scheduleHorseListRefresh();queueRoutineCloudSync()}});
 
 function getHorseDeletionTombstones(){try{return JSON.parse(localStorage.getItem('horse_delete_tombstones')||'{}')||{}}catch(e){return {}}}
 function markHorseDeletionTombstone(cloudId){if(!cloudId)return;const t=getHorseDeletionTombstones();t[cloudId]=new Date().toISOString();localStorage.setItem('horse_delete_tombstones',JSON.stringify(t))}
@@ -590,8 +602,63 @@ async function ensureProfile(user,name=''){const displayName=name||user.user_met
 function authErrorText(e){const m=(e?.message||'').toLowerCase();if(m.includes('invalid login credentials'))return 'E-Mail-Adresse oder Passwort ist nicht korrekt.';if(m.includes('email not confirmed'))return 'Bitte bestätige zuerst deine E-Mail-Adresse über den Link in der E-Mail von HorseHub.';if(m.includes('user already registered'))return 'Für diese E-Mail-Adresse existiert bereits ein Konto. Bitte melde dich an.';if(m.includes('rate limit'))return 'Der E-Mail-Versand ist gerade begrenzt. Bitte warte etwas und versuche es später erneut.';if(m.includes('password should be at least'))return 'Das Passwort muss mindestens 8 Zeichen lang sein.';return e?.message||'Es ist ein Fehler bei der Anmeldung aufgetreten.'}
 async function handleResendConfirmation(){const email=$('authEmail').value.trim();if(!email){showAuthMessage('Bitte zuerst deine E-Mail-Adresse eingeben.');return}try{const {error}=await supabaseClient.auth.resend({type:'signup',email,options:{emailRedirectTo:'https://myhorsehub.github.io/Horsehub/'}});if(error)throw error;$('resendConfirmBtn')?.classList.add('hidden');showAuthMessage('Wir haben dir eine neue Bestätigungs-E-Mail geschickt. Bitte verwende nur den neuesten Link.')}catch(e){showAuthMessage(authErrorText(e),true)}}
 async function handleForgotPassword(){const email=$('authEmail').value.trim();if(!email){showAuthMessage('Bitte zuerst deine E-Mail-Adresse eingeben.');return}try{const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:'https://myhorsehub.github.io/Horsehub/'});if(error)throw error;showAuthMessage('Wir haben dir einen Link zum Zurücksetzen des Passworts geschickt. Bitte prüfe dein E-Mail-Postfach.')}catch(e){showAuthMessage(authErrorText(e),true)}}
-function showAuthenticated(session,user){horseHubCloudUser=user;$('authLoading')?.classList.add('hidden');$('authGate')?.classList.add('hidden');$('horsehubApp')?.classList.remove('hidden');if($('accountEmail'))$('accountEmail').textContent=user.email||'–';setAuthMode('login');renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();syncHorsesWithCloud()}
+function showAuthenticated(session,user){horseHubCloudUser=user;$('authLoading')?.classList.add('hidden');$('authGate')?.classList.add('hidden');$('horsehubApp')?.classList.remove('hidden');if($('accountEmail'))$('accountEmail').textContent=user.email||'–';setAuthMode('login');renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();syncHorsesWithCloud();syncRoutinesAndDailyTasks()}
 function showAuthGate(){$('horsehubApp')?.classList.add('hidden');$('authLoading')?.classList.add('hidden');$('authGate')?.classList.remove('hidden');setAuthMode('login')}
+
+/* 1.12.0 – Cloud sync for routines and daily task completion */
+let routineCloudSyncing=false;
+let routineCloudTimer=null;
+let dailyCloudSyncing=false;
+const ROUTINE_SYNC_TABLE='horsehub_routines';
+const DAILY_TASK_TABLE='horsehub_daily_tasks';
+const TASK_COMPLETION_TABLE='horsehub_task_completions';
+function queueRoutineCloudSync(){if(!horseHubCloudUser)return;clearTimeout(routineCloudTimer);routineCloudTimer=setTimeout(()=>syncRoutinesAndDailyTasks(),500)}
+function queueDailyTaskCloudSync(){if(!horseHubCloudUser)return;clearTimeout(routineCloudTimer);routineCloudTimer=setTimeout(()=>syncRoutinesAndDailyTasks(),500)}
+function routineRow(r){const h=r.horseId?getHorses().find(x=>x.id===r.horseId):null;return {id:r.id,owner_id:horseHubCloudUser.id,horse_id:h?.cloud_id||null,title:r.title||'',frequency:r.frequency||'täglich',time:r.time||null,weekday:Number.isInteger(r.weekday)?r.weekday:null,enabled:r.enabled!==false,updated_at:r.local_updated_at||new Date().toISOString(),deleted_at:r.deleted_at||null}}
+function routineFromCloud(row){const h=row.horse_id?getHorses().find(x=>x.cloud_id===row.horse_id):null;return {id:row.id,title:row.title||'',horseId:h?.id||'',frequency:row.frequency||'täglich',time:row.time||'',weekday:row.weekday==null?null:row.weekday,enabled:row.enabled!==false,deleted_at:row.deleted_at||null,cloud_synced_at:row.updated_at||'',local_updated_at:row.updated_at||'',cloud_dirty:false}}
+function dailyDoneMeta(){try{return JSON.parse(localStorage.getItem('dailyDoneMeta')||'{}')||{}}catch(e){return {}}}
+function taskCompletionRows(){const done=getDailyDone(),meta=dailyDoneMeta(),out=[];for(const [key,value] of Object.entries(done)){const m=meta[key];if(!m?.updated_at)continue;const parts=key.split(':');const date=parts[parts.length-1];if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))continue;out.push({owner_id:horseHubCloudUser.id,task_key:key,task_date:date,done:!!value,updated_at:m.updated_at})}return out}
+async function syncRoutinesAndDailyTasks(){if(!horseHubCloudUser||routineCloudSyncing)return;routineCloudSyncing=true;try{await syncRoutines();await syncDailyTaskCompletions();await syncManualTodayTasks()}catch(e){console.warn('Routinen-/Aufgaben-Sync fehlgeschlagen',e);setCloudStatus(`⚠️ Routinen/Aufgaben-Sync: ${cloudErrorText(e)}`,true)}finally{routineCloudSyncing=false}}
+async function syncRoutines(){
+  const local=getRoutines();
+  const {data,error}=await supabaseClient.from(ROUTINE_SYNC_TABLE).select('id,owner_id,horse_id,title,frequency,time,weekday,enabled,updated_at,deleted_at').eq('owner_id',horseHubCloudUser.id);
+  if(error)throw error;
+  const cloud=Array.isArray(data)?data:[], byId=new Map(cloud.map(r=>[r.id,r])), localById=new Map(local.map(r=>[r.id,r])), result=[];
+  for(const r of local){
+    const c=byId.get(r.id);
+    if(!c){if(r.deleted_at)continue;if(r.cloud_synced_at&&!r.cloud_dirty)continue;result.push(r);continue}
+    const lu=new Date(r.local_updated_at||0).getTime(), cu=new Date(c.updated_at||0).getTime();
+    if(r.cloud_dirty && lu>cu){result.push(r)}
+    else if((c.deleted_at&&cu>=lu)){continue}
+    else if(cu>lu){result.push(routineFromCloud(c))}
+    else result.push({...r,cloud_synced_at:c.updated_at||'',cloud_dirty:false});
+  }
+  for(const c of cloud){if(localById.has(c.id))continue;if(!c.deleted_at)result.push(routineFromCloud(c))}
+  localStorage.setItem('routines',JSON.stringify(result));renderRoutines();renderTodayTasks();
+  const upserts=[];
+  for(const r of result){if(r.deleted_at||r.cloud_dirty||!byId.has(r.id))upserts.push(routineRow(r))}
+  if(upserts.length){const {data:written,error:e}=await supabaseClient.from(ROUTINE_SYNC_TABLE).upsert(upserts,{onConflict:'owner_id,id'}).select('id,updated_at');if(e)throw e;const byWritten=new Map((written||[]).map(x=>[x.id,x.updated_at]));const refreshed=getRoutines().map(r=>byWritten.has(r.id)?{...r,cloud_synced_at:byWritten.get(r.id),local_updated_at:r.local_updated_at||byWritten.get(r.id),cloud_dirty:false}:r);localStorage.setItem('routines',JSON.stringify(refreshed));renderRoutines();renderTodayTasks()}
+}
+async function syncDailyTaskCompletions(){
+  const {data,error}=await supabaseClient.from(TASK_COMPLETION_TABLE).select('task_key,task_date,done,updated_at').eq('owner_id',horseHubCloudUser.id).gte('task_date',new Date(Date.now()-31*86400000).toISOString().slice(0,10));
+  if(error)throw error;
+  const local=getDailyDone(),meta=dailyDoneMeta(),cloud=Array.isArray(data)?data:[],byKey=new Map(cloud.map(x=>[x.task_key,x]));
+  for(const c of cloud){const m=meta[c.task_key],lu=new Date(m?.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();if(!m||cu>lu){local[c.task_key]=!!c.done;meta[c.task_key]={done:!!c.done,updated_at:c.updated_at||new Date().toISOString()}}}
+  localStorage.setItem('dailyDone',JSON.stringify(local));localStorage.setItem('dailyDoneMeta',JSON.stringify(meta));renderTodayTasks();
+  const rows=taskCompletionRows();if(rows.length){const {error:e}=await supabaseClient.from(TASK_COMPLETION_TABLE).upsert(rows,{onConflict:'owner_id,task_key'}).select('task_key,updated_at');if(e)throw e}
+}
+async function syncManualTodayTasks(){
+  const local=JSON.parse(localStorage.getItem('todayTasks')||'[]'), byId=new Map(local.map(t=>[t.id,t]));
+  const tombstones=JSON.parse(localStorage.getItem('todayTaskTombstones')||'{}');
+  const {data,error}=await supabaseClient.from(DAILY_TASK_TABLE).select('id,owner_id,title,horse_id,task_date,done,updated_at,deleted_at').eq('owner_id',horseHubCloudUser.id);
+  if(error)throw error;const cloud=Array.isArray(data)?data:[], result=[];
+  for(const t of local){const c=cloud.find(x=>x.id===t.id);if(!c){if(t.cloud_synced_at)continue;result.push(t);continue}const lu=new Date(t.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();if(lu>cu)result.push(t);else if(c.deleted_at){}else result.push({...t,title:c.title,horseId:(getHorses().find(h=>h.cloud_id===c.horse_id)?.id||t.horseId||''),date:c.task_date,done:!!c.done,updated_at:c.updated_at})}
+  for(const c of cloud)if(!byId.has(c.id)&&!c.deleted_at)result.push({id:c.id,title:c.title||'',horseId:(getHorses().find(h=>h.cloud_id===c.horse_id)?.id||''),date:c.task_date,done:!!c.done,updated_at:c.updated_at})
+  localStorage.setItem('todayTasks',JSON.stringify(result));renderTodayTasks();
+  const rows=result.map(t=>({id:t.id,owner_id:horseHubCloudUser.id,title:t.title||'',horse_id:(getHorses().find(h=>h.id===t.horseId)?.cloud_id)||null,task_date:t.date,done:!!t.done,updated_at:t.updated_at||new Date().toISOString(),deleted_at:t.deleted_at||null}));
+  for(const [id,ts] of Object.entries(tombstones))rows.push({id,owner_id:horseHubCloudUser.id,title:'',horse_id:null,task_date:todayISO(),done:false,updated_at:ts.deleted_at,deleted_at:ts.deleted_at});
+  if(rows.length){const {data:written,error:e}=await supabaseClient.from(DAILY_TASK_TABLE).upsert(rows,{onConflict:'owner_id,id'}).select('id,updated_at');if(e)throw e;const byWritten=new Map((written||[]).map(x=>[x.id,x.updated_at]));const synced=result.map(t=>byWritten.has(t.id)?{...t,cloud_synced_at:byWritten.get(t.id),cloud_dirty:false}:t);localStorage.setItem('todayTasks',JSON.stringify(synced))}
+}
 async function signOutHorseHub(){horseHubCloudUser=null;const {error}=await supabaseClient.auth.signOut();if(error){showAuthMessage(authErrorText(error),true);return}showAuthGate()}
 function handleAuthHashError(){const hash=window.location.hash||'';if(!hash.includes('error_code='))return;const params=new URLSearchParams(hash.replace(/^#/,'?'));const code=params.get('error_code');const desc=params.get('error_description');if(code==='otp_expired')showAuthMessage('Der Bestätigungslink ist abgelaufen oder wurde bereits verwendet. Bitte fordere eine neue Bestätigungs-E-Mail an.');else if(desc)showAuthMessage(decodeURIComponent(desc.replace(/\+/g,' ')),true);if(window.history&&window.history.replaceState)window.history.replaceState({},document.title,window.location.pathname+window.location.search)}
 async function initHorseHubAuth(){try{const sessionPromise=supabaseClient.auth.getSession();const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error('AUTH_TIMEOUT')),8000));const {data:{session},error}=await Promise.race([sessionPromise,timeoutPromise]);if(error)throw error;if(session?.user){await ensureProfile(session.user);showAuthenticated(session,session.user)}else showAuthGate();supabaseClient.auth.onAuthStateChange((_event,newSession)=>{if(newSession?.user)showAuthenticated(newSession,newSession.user);else if(_event==='SIGNED_OUT')showAuthGate()})}catch(e){console.error('HorseHub Auth-Initialisierung',e);showAuthGate();showAuthMessage(e?.message==='AUTH_TIMEOUT'?'Die Anmeldung konnte nicht rechtzeitig geladen werden. Bitte prüfe deine Internetverbindung und lade HorseHub neu.':'Die Verbindung zum HorseHub-Konto konnte nicht hergestellt werden. Bitte prüfe deine Internetverbindung und versuche es erneut.',true)}}
@@ -628,15 +695,17 @@ function formatBytes(bytes){if(bytes<1024)return bytes+' B';if(bytes<1024*1024)r
 async function compressHorsePhotoData(data){const target=800*1024;let maxW=1600;let quality=.82;let result=data;for(let round=0;round<6;round++){result=await compressImageData(data,maxW,quality);if(dataUrlBytes(result)<=target)return result;if(quality>.62){quality-=.07}else{maxW=Math.max(1000,maxW-200);quality=.76}}return result}
 async function uploadProfileDocument(id,type,input){let f=input.files&&input.files[0];if(!f)return;if(f.size>10*1024*1024){alert('Bitte ein Bild unter 10 MB wählen.');input.value='';return}let reader=new FileReader();reader.onload=async()=>{let h=getHorses().find(x=>x.id===id);if(!h)return;let data=await compressImageData(reader.result);let title=prompt(type==='health'?'Titel des Befunds / Gesundheitsdokuments':'Titel des Dokuments',f.name.replace(/\.[^.]+$/,''))||'Dokument';let arr=[...(type==='health'?(h.healthAttachments||[]):(h.documentAttachments||[]))];arr.unshift({id:'a'+Date.now(),title:title.trim(),data,date:new Date().toLocaleDateString('de-DE')});let updated={...h,[type==='health'?'healthAttachments':'documentAttachments']:arr};localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===id?markHorseLocalChange(updated):x)));renderHorses();renderHorseProfile(updated);queueHorseCloudSync(id);input.value=''};reader.readAsDataURL(f)}
 function removeAttachment(id,type,aid){let h=getHorses().find(x=>x.id===id);if(!h)return;if(!confirm('Dieses Dokument wirklich löschen?'))return;let field=type==='health'?'healthAttachments':'documentAttachments';let updated={...h,[field]:(h[field]||[]).filter(a=>a.id!==aid)};localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===id?markHorseLocalChange(updated):x)));renderHorses();renderHorseProfile(updated);queueHorseCloudSync(id)}
-function getRoutines(){return JSON.parse(localStorage.getItem('routines')||'[]')}
-function saveRoutines(a){localStorage.setItem('routines',JSON.stringify(a));renderRoutines();renderTodayTasks()}
-function addRoutine(){let title=prompt('Routine / Aufgabe','Stall misten');if(!title?.trim())return;let horseId=prompt('Pferd-ID optional – leer lassen für Stall/alle Pferde','')||'';let frequency=prompt('Häufigkeit: täglich, werktags oder wöchentlich','täglich')||'täglich';frequency=frequency.toLowerCase().trim();if(!['täglich','werktags','wöchentlich'].includes(frequency))frequency='täglich';let time=prompt('Uhrzeit optional (HH:MM)','')||'';if(time&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(time.trim())){alert('Bitte Uhrzeit im Format HH:MM eingeben.');return}let arr=getRoutines();arr.push({id:'r'+Date.now(),title:title.trim(),horseId:horseId.trim(),frequency,time:time.trim(),weekday:frequency==='wöchentlich'?new Date().getDay():null,enabled:true});saveRoutines(arr);if(time)requestNotifications()}
-function toggleRoutine(id){saveRoutines(getRoutines().map(r=>r.id===id?{...r,enabled:!r.enabled}:r))}
-function deleteRoutine(id){if(!confirm('Diese Routine löschen?'))return;saveRoutines(getRoutines().filter(r=>r.id!==id))}
-function routineAppliesToday(r){if(!r.enabled)return false;if(r.frequency==='täglich')return true;if(r.frequency==='werktags'){let d=new Date().getDay();return d>=1&&d<=5}if(r.frequency==='wöchentlich')return r.weekday===new Date().getDay();return true}
-function renderRoutines(){let el=$('routinesList');if(!el)return;let hs=getHorses();let arr=getRoutines();el.innerHTML=arr.length?arr.map(r=>{let h=hs.find(x=>x.id===r.horseId);return `<div class="todo-row"><div style="flex:1"><b>${escapeHtml(r.title)}</b><div class="todo-meta">${escapeHtml(r.frequency)}${r.time?' · '+escapeHtml(r.time):''}${h?' · 🐴 '+escapeHtml(h.name):' · Stall/alle Pferde'}</div></div><button class="smallbtn secondary" onclick="toggleRoutine('${r.id}')">${r.enabled?'aktiv':'pausiert'}</button><button class="smallbtn danger" onclick="deleteRoutine('${r.id}')">Löschen</button></div>`}).join(''):'<div class="empty">Noch keine Routinen. Lege z. B. „Stall misten“ täglich an.</div>'}
-function getDailyDone(){return JSON.parse(localStorage.getItem('dailyDone')||'{}')}
-function setDailyDone(key,done){let a=getDailyDone();a[key]=!!done;localStorage.setItem('dailyDone',JSON.stringify(a))}
+function getRoutines(){try{return JSON.parse(localStorage.getItem('routines')||'[]')||[]}catch(e){return []}}
+function activeRoutines(){return getRoutines().filter(r=>!r.deleted_at)}
+function routineLocalMutation(r){return {...r,local_updated_at:new Date().toISOString(),cloud_dirty:true}}
+function saveRoutines(a){localStorage.setItem('routines',JSON.stringify(a));renderRoutines();renderTodayTasks();queueRoutineCloudSync()}
+function addRoutine(){let title=prompt('Routine / Aufgabe','Stall misten');if(!title?.trim())return;let horseId=prompt('Pferd-ID optional – leer lassen für Stall/alle Pferde','')||'';let frequency=prompt('Häufigkeit: täglich, werktags oder wöchentlich','täglich')||'täglich';frequency=frequency.toLowerCase().trim();if(!['täglich','werktags','wöchentlich'].includes(frequency))frequency='täglich';let time=prompt('Uhrzeit optional (HH:MM)','')||'';if(time&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(time.trim())){alert('Bitte Uhrzeit im Format HH:MM eingeben.');return}let arr=getRoutines();arr.push(routineLocalMutation({id:'r'+Date.now()+'-'+Math.random().toString(36).slice(2,7),title:title.trim(),horseId:horseId.trim(),frequency,time:time.trim(),weekday:frequency==='wöchentlich'?new Date().getDay():null,enabled:true,deleted_at:null}));saveRoutines(arr);if(time)requestNotifications()}
+function toggleRoutine(id){saveRoutines(getRoutines().map(r=>r.id===id?routineLocalMutation({...r,enabled:!r.enabled}):r))}
+function deleteRoutine(id){if(!confirm('Diese Routine löschen?'))return;saveRoutines(getRoutines().map(r=>r.id===id?routineLocalMutation({...r,deleted_at:new Date().toISOString()}):r))}
+function routineAppliesToday(r){if(r.deleted_at||!r.enabled)return false;if(r.frequency==='täglich')return true;if(r.frequency==='werktags'){let d=new Date().getDay();return d>=1&&d<=5}if(r.frequency==='wöchentlich')return r.weekday===new Date().getDay();return true}
+function renderRoutines(){let el=$('routinesList');if(!el)return;let hs=getHorses();let arr=activeRoutines();el.innerHTML=arr.length?arr.map(r=>{let h=hs.find(x=>x.id===r.horseId);return `<div class="todo-row"><div style="flex:1"><b>${escapeHtml(r.title)}</b><div class="todo-meta">${escapeHtml(r.frequency)}${r.time?' · '+escapeHtml(r.time):''}${h?' · 🐴 '+escapeHtml(h.name):' · Stall/alle Pferde'}</div></div><button class="smallbtn secondary" onclick="toggleRoutine('${r.id}')">${r.enabled?'aktiv':'pausiert'}</button><button class="smallbtn danger" onclick="deleteRoutine('${r.id}')">Löschen</button></div>`}).join(''):'<div class="empty">Noch keine Routinen. Lege z. B. „Stall misten“ täglich an.</div>'}
+function getDailyDone(){try{return JSON.parse(localStorage.getItem('dailyDone')||'{}')||{}}catch(e){return {}}}
+function setDailyDone(key,done){let a=getDailyDone();a[key]=!!done;localStorage.setItem('dailyDone',JSON.stringify(a));let meta={};try{meta=JSON.parse(localStorage.getItem('dailyDoneMeta')||'{}')||{}}catch(e){}meta[key]={done:!!done,updated_at:new Date().toISOString()};localStorage.setItem('dailyDoneMeta',JSON.stringify(meta));queueDailyTaskCloudSync()}
 function toggleFeedingCustomField(){const type=$('feedType')?.value||'';const wrap=$('feedCustomWrap');const input=$('feedCustom');const label=$('feedCustomLabel');if(!wrap||!input)return;const needs=type==='Müsli'||type==='Sonstiges';wrap.classList.toggle('hidden',!needs);if(needs){label.textContent=type==='Müsli'?'Müsli-Bezeichnung':'Was wird gefüttert?';input.placeholder=type==='Müsli'?'z. B. Pavo Sport':'z. B. Rübenschnitzel, Luzerne, Karotten';}else{input.value=''}}
 function addStructuredFeeding(id){
   let h=getHorses().find(x=>x.id===id);if(!h)return;
@@ -657,7 +726,8 @@ function addFeedingTime(id){addStructuredFeeding(id)}
 function removeFeedingTime(id,fid){let h=getHorses().find(x=>x.id===id);if(!h)return;let arr=(h.feedingTimes||[]).filter(x=>x.id!==fid);profileSave(id,'feedingTimes',arr)}
 function renderFeedingTimes(h){let a=h.feedingTimes||[];if(!a.length)return '<div class="empty">Noch keine festen Fütterungen. Lege z. B. Heu um 07:00 und Kraftfutter um 18:00 an.</div>';return '<div class="entry-list">'+a.slice().sort((x,y)=>(x.time||'').localeCompare(y.time||'')).map(f=>`<div class="entry"><div class="entry-head"><b>🥕 ${escapeHtml(f.time)} · ${escapeHtml(f.label||f.type||'Futter')}</b><button class="smallbtn danger" onclick="removeFeedingTime('${h.id}','${f.id}')">Löschen</button></div><div class="muted">Täglich · erscheint automatisch in „Heute“ und kann eine Benachrichtigung auslösen.</div></div>`).join('')+'</div>'}
 function medicationAppliesToday(m){let day=(new Date().getDay()+6)%7;return medicationDays(m).includes(day)}
-function getAutoTodayItems(){let date=todayISO(),hs=getHorses(),items=[],done=getDailyDone();getRoutines().filter(routineAppliesToday).forEach(r=>items.push({key:`routine:${r.id}:${date}`,title:r.title,meta:`Routine${r.time?' · '+r.time:''}`,done:!!done[`routine:${r.id}:${date}`]}));hs.forEach(h=>(h.feedingTimes||[]).filter(f=>f.enabled!==false).forEach(f=>items.push({key:`feed:${h.id}:${f.id}:${date}`,title:`Füttern – ${f.label}`,meta:`🥕 ${h.name} · ${f.time} Uhr`,done:!!done[`feed:${h.id}:${f.id}:${date}`]})));hs.forEach(h=>(h.medications||[]).filter(m=>m.reminderTime&&medicationAppliesToday(m)).forEach(m=>items.push({key:`med:${h.id}:${m.id}:${date}`,title:`Medikament – ${m.name}`,meta:`💊 ${h.name} · ${m.reminderTime} Uhr`,done:!!done[`med:${h.id}:${m.id}:${date}`]})));hs.filter(h=>h.outdoorType&&h.outdoorFrequency==='täglich').forEach(h=>items.push({key:`outdoor:${h.id}:${date}`,title:`Auslauf – ${h.outdoorType}`,meta:`🌿 ${h.name}${h.outdoorFrom||h.outdoorTo?' · '+(h.outdoorFrom||'—')+'–'+(h.outdoorTo||'—'):''}${h.outdoorCare?' · '+h.outdoorCare:''}`,done:!!done[`outdoor:${h.id}:${date}`]}));return items}
+function taskHorseKey(h){return h?.cloud_id||h?.id||''}
+function getAutoTodayItems(){let date=todayISO(),hs=getHorses(),items=[],done=getDailyDone();activeRoutines().filter(routineAppliesToday).forEach(r=>items.push({key:`routine:${r.id}:${date}`,title:r.title,meta:`Routine${r.time?' · '+r.time:''}`,done:!!done[`routine:${r.id}:${date}`]}));hs.forEach(h=>(h.feedingTimes||[]).filter(f=>f.enabled!==false).forEach(f=>items.push({key:`feed:${taskHorseKey(h)}:${f.id}:${date}`,title:`Füttern – ${f.label}`,meta:`🥕 ${h.name} · ${f.time} Uhr`,done:!!done[`feed:${taskHorseKey(h)}:${f.id}:${date}`]})));hs.forEach(h=>(h.medications||[]).filter(m=>m.reminderTime&&medicationAppliesToday(m)).forEach(m=>items.push({key:`med:${taskHorseKey(h)}:${m.id}:${date}`,title:`Medikament – ${m.name}`,meta:`💊 ${h.name} · ${m.reminderTime} Uhr`,done:!!done[`med:${taskHorseKey(h)}:${m.id}:${date}`]})));hs.filter(h=>h.outdoorType&&h.outdoorFrequency==='täglich').forEach(h=>items.push({key:`outdoor:${taskHorseKey(h)}:${date}`,title:`Auslauf – ${h.outdoorType}`,meta:`🌿 ${h.name}${h.outdoorFrom||h.outdoorTo?' · '+(h.outdoorFrom||'—')+'–'+(h.outdoorTo||'—'):''}${h.outdoorCare?' · '+h.outdoorCare:''}`,done:!!done[`outdoor:${taskHorseKey(h)}:${date}`]}));return items}
 function toggleAutoToday(key){let done=getDailyDone();setDailyDone(key,!done[key]);renderTodayTasks()}
 function notificationSupported(){return 'Notification' in window}
 async function requestNotifications(){if(!notificationSupported()){alert('Dieser Browser unterstützt keine Web-Benachrichtigungen.');return false}try{if(Notification.permission==='granted'){updateNotificationStatus();return true}let p=await Notification.requestPermission();updateNotificationStatus();if(p!=='granted')alert('Benachrichtigungen wurden nicht freigegeben. In den Android-/Website-Einstellungen kannst du sie später wieder erlauben.');return p==='granted'}catch(e){alert('Benachrichtigungen konnten nicht aktiviert werden: '+e.message);return false}}
@@ -761,7 +831,29 @@ async function saveHorse(){
  syncHorseToCloud(horse.id).catch(()=>{});
 }
 function toggleHorseVisibility(id){let hs=getHorses().map(h=>h.id===id?markHorseLocalChange({...h,visible:h.visible===false?true:false}):h);localStorage.setItem('horses',JSON.stringify(hs));renderHorses();queueHorseCloudSync(id)}
-async function deleteHorse(id){let h=getHorses().find(x=>x.id===id);if(!h||!confirm(`Möchtest du „${h.name}“ wirklich löschen?`))return;const cloudId=h.cloud_id||'';if(cloudId){markHorseDeletionTombstone(cloudId);const deleted=await deleteHorseFromCloud(cloudId);if(!deleted)return;clearHorseDeletionTombstone(cloudId)}setHorses(getHorses().filter(x=>x.id!==id))}
+async function deleteHorse(id){
+  let h=getHorses().find(x=>x.id===id);
+  if(!h||!confirm(`Möchtest du „${h.name}“ wirklich löschen?`))return;
+  const cloudId=h.cloud_id||'';
+  // Invalidate every in-flight list pull and cancel a queued per-horse upload.
+  // Otherwise an older response/upload can resurrect the just-deleted horse.
+  horseHubSyncGeneration++;
+  bumpHorseLocalEditVersion(id);
+  clearTimeout(horseHubCloudTimers.get(id));
+  horseHubCloudTimers.delete(id);
+  if(cloudId){
+    markHorseDeletionTombstone(cloudId);
+    const deleted=await deleteHorseFromCloud(cloudId);
+    if(!deleted){
+      clearHorseDeletionTombstone(cloudId);
+      return;
+    }
+  }
+  setHorses(getHorses().filter(x=>x.id!==id));
+  // Keep the tombstone until a subsequent cloud pull confirms that the row is
+  // really absent. This protects against stale responses during the deletion.
+  if(!cloudId)clearHorseDeletionTombstone(cloudId);
+}
 function newPlan(){let name=prompt('Name des Plans, z. B. „Futterplan Andalusier“');if(name){$('plansList').insertAdjacentHTML('afterbegin',`<div class="card"><h3>📋 ${escapeHtml(name)}</h3><p>Neuer gemeinsamer Plan – Inhalte können im nächsten Schritt bearbeitet und mit Personen geteilt werden.</p><span class="tag">👤 nur du</span></div>`)} }
 
 function saveEmergencyInfo(id){let h=getHorses().find(x=>x.id===id);if(!h)return;let emergency=$('emergencyText')?.value.trim()||'';let ownerName=document.querySelector("#pEmergency input[onchange*='ownerName']")?.value.trim()||h.ownerName||'';let ownerPhone=document.querySelector("#pEmergency input[onchange*='ownerPhone']")?.value.trim()||h.ownerPhone||'';let vetName=document.querySelector("#pEmergency input[onchange*='vetName']")?.value.trim()||h.vetName||'';let vetPhone=document.querySelector("#pEmergency input[onchange*='vetPhone']")?.value.trim()||h.vetPhone||'';let updated={...h,emergency,ownerName,ownerPhone,vetName,vetPhone};updated=markHorseLocalChange(updated);localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===id?updated:x)));renderHorses();renderHorseProfile(updated);queueHorseCloudSync(id);if($('emergencyVoiceStatus'))$('emergencyVoiceStatus').textContent='Notfallinformationen gespeichert ✓'}
@@ -841,11 +933,11 @@ window.addEventListener('focus',()=>{clearTimeout(horseHubRefreshTimer);horseHub
 function todayISO(){return localISODate(new Date())}
 function cleanupDailyState(){const today=todayISO();let done=getDailyDone();done=Object.fromEntries(Object.entries(done).filter(([key])=>key.endsWith(':'+today)));localStorage.setItem('dailyDone',JSON.stringify(done));let tasks=JSON.parse(localStorage.getItem('todayTasks')||'[]');tasks=tasks.filter(t=>t.date===today);localStorage.setItem('todayTasks',JSON.stringify(tasks));return tasks}
 function getTodayTasks(){return cleanupDailyState()}
-function saveTodayTasks(a){localStorage.setItem('todayTasks',JSON.stringify(a));renderTodayTasks()}
-function addTodayTask(){let title=prompt('Was möchtest du heute erledigen?','Stall misten');if(!title?.trim())return;let tasks=cleanupDailyState();tasks.push({id:'tt'+Date.now(),title:title.trim(),horseId:'',date:todayISO(),done:false});saveTodayTasks(tasks)}
-function toggleTodayTask(id){let tasks=cleanupDailyState().map(t=>t.id===id?{...t,done:!t.done}:t);saveTodayTasks(tasks)}
-function deleteTodayTask(id){let tasks=cleanupDailyState().filter(t=>t.id!==id);saveTodayTasks(tasks)}
-function removeCompletedTodayTasks(){let tasks=cleanupDailyState();let count=tasks.filter(t=>t.done).length;if(!count){alert('Heute sind keine erledigten manuellen Aufgaben vorhanden.');return}if(confirm(`Möchtest du ${count} erledigte Aufgabe${count===1?'':'n'} entfernen?`)){saveTodayTasks(tasks.filter(t=>!t.done))}}
+function saveTodayTasks(a){const now=new Date().toISOString();a=a.map(t=>({...t,updated_at:t.updated_at||now}));localStorage.setItem('todayTasks',JSON.stringify(a));renderTodayTasks();queueDailyTaskCloudSync()}
+function addTodayTask(){let title=prompt('Was möchtest du heute erledigen?','Stall misten');if(!title?.trim())return;let tasks=cleanupDailyState();tasks.push({id:'tt'+Date.now()+'-'+Math.random().toString(36).slice(2,7),title:title.trim(),horseId:'',date:todayISO(),done:false,updated_at:new Date().toISOString()});saveTodayTasks(tasks)}
+function toggleTodayTask(id){let tasks=cleanupDailyState().map(t=>t.id===id?{...t,done:!t.done,updated_at:new Date().toISOString()}:t);saveTodayTasks(tasks)}
+function deleteTodayTask(id){let tasks=cleanupDailyState();let t=tasks.find(x=>x.id===id);if(!t)return;let ts=JSON.parse(localStorage.getItem('todayTaskTombstones')||'{}');ts[id]={deleted_at:new Date().toISOString()};localStorage.setItem('todayTaskTombstones',JSON.stringify(ts));saveTodayTasks(tasks.filter(x=>x.id!==id))}
+function removeCompletedTodayTasks(){let tasks=cleanupDailyState();let done=tasks.filter(t=>t.done);let count=done.length;if(!count){alert('Heute sind keine erledigten manuellen Aufgaben vorhanden.');return}if(confirm(`Möchtest du ${count} erledigte Aufgabe${count===1?'':'n'} entfernen?`)){let ts=JSON.parse(localStorage.getItem('todayTaskTombstones')||'{}');const now=new Date().toISOString();done.forEach(t=>ts[t.id]={deleted_at:now});localStorage.setItem('todayTaskTombstones',JSON.stringify(ts));saveTodayTasks(tasks.filter(t=>!t.done))}}
 function scheduleDailyReset(){const now=new Date();const next=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1,0,0,1,0);const ms=Math.max(1000,next-now);setTimeout(()=>{cleanupDailyState();renderTodayTasks();scheduleDailyReset()},ms)}
 function toggleTodayEvent(id){let events=getEvents().map(e=>e.id===id?{...e,todoDone:!e.todoDone}:e);saveEvents(events);renderTodayTasks()}
 function renderTodayTasks(){let el=$('todayTodoList');if(!el)return;cleanupDailyState();let tasks=getTodayTasks(),events=getEvents().filter(e=>normalizeDate(e.date)===todayISO()),horses=getHorses(),items=[];tasks.forEach(t=>items.push({kind:'task',id:t.id,key:`task:${t.id}:${todayISO()}`,title:t.title,meta:'Aufgabe',done:!!t.done}));getAutoTodayItems().forEach(x=>items.push({kind:'auto',id:x.key,key:x.key,title:x.title,meta:x.meta,done:x.done}));events.forEach(e=>{let h=horses.find(x=>x.id===e.horseId);items.push({kind:'event',id:e.id,key:`event:${e.id}:${todayISO()}`,title:e.title,meta:`${e.type||'Termin'}${e.time?' · '+e.time:''}${h?' · '+h.name:''}`,done:!!e.todoDone})});if(!items.length){el.innerHTML='<div class="today-empty">Heute steht noch nichts an. Routinen, Fütterungszeiten und Termine erscheinen hier automatisch.</div>';return}el.innerHTML=items.map(i=>`<div class="todo-row ${i.done?'done':''}"><input type="checkbox" ${i.done?'checked':''} onchange="${i.kind==='event'?`toggleTodayEvent('${i.id}')`:i.kind==='task'?`toggleTodayTask('${i.id}')`:`toggleAutoToday('${i.key}')`}"><div style="flex:1"><div class="todo-title"><b>${i.kind==='event'?'📅':i.kind==='auto'?'⏰':'☑️'} ${escapeHtml(i.title)}</b></div><div class="todo-meta">${escapeHtml(i.meta)}</div></div>${i.kind==='task'?`<button class="smallbtn secondary" onclick="deleteTodayTask('${i.id}')">Löschen</button>`:''}</div>`).join('')}
