@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.9</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.10</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.9 – Individuelle Fütterung + Titelbild-Einstellungen */
+/* HorseHub 1.10.10 – Individuelle Fütterung + Titelbild-Einstellungen + Futter-Löschfix */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -378,7 +378,7 @@ function setDailyDone(key,done){let a=getDailyDone();a[key]=!!done;localStorage.
 function updateCustomFeedField(){let type=$('feedType')?.value||'';let box=$('feedCustomField'),input=$('feedCustomName'),label=$('feedCustomLabel');if(!box||!input)return;let custom=type==='Müsli'||type==='Sonstiges';box.style.display=custom?'block':'none';if(label)label.textContent=type==='Sonstiges'?'Was wird gefüttert?':'Müsli / Produktname (optional)';input.placeholder=type==='Sonstiges'?'z. B. Rübenschnitzel, Luzerne, Karotten …':'z. B. Pavo Sport';if(!custom)input.value=''}
 function addStructuredFeeding(id){let h=getHorses().find(x=>x.id===id);if(!h)return;let type=$('feedType')?.value||'Sonstiges',customName=$('feedCustomName')?.value.trim()||'',amount=$('feedAmount')?.value.trim()||'',unit=$('feedUnit')?.value||'kg',time=$('feedTime')?.value||'';if(!time){alert('Bitte eine Uhrzeit angeben.');return}if(type==='Sonstiges'&&!customName){alert('Bitte eingeben, was gefüttert werden soll.');$('feedCustomName')?.focus();return}let displayType=customName?`${type}: ${customName}`:type;let label=amount?`${displayType} · ${amount} ${unit}`:displayType;let arr=[...(h.feedingTimes||[])];arr.push({id:'ft'+Date.now(),label,type,customName,amount,unit,time,enabled:true});profileSave(id,'feedingTimes',arr);requestNotifications();if($('feedCustomName'))$('feedCustomName').value='';updateCustomFeedField()}
 function addFeedingTime(id){addStructuredFeeding(id)}
-function removeFeedingTime(id,fid){let h=getHorses().find(x=>x.id===id);if(!h)return;profileSave(id,'feedingTimes',(h.feedingTimes||[]).filter(x=>x.id!==fid));renderHorseProfile(id)}
+function removeFeedingTime(id,fid){let h=getHorses().find(x=>x.id===id);if(!h)return;let updated={...h,feedingTimes:(h.feedingTimes||[]).filter(x=>x.id!==fid)};profileSave(id,'feedingTimes',updated.feedingTimes);renderHorseProfile(updated)}
 function renderFeedingTimes(h){let a=h.feedingTimes||[];if(!a.length)return '<div class="empty">Noch keine festen Fütterungen. Lege z. B. Heu um 07:00 und Kraftfutter um 18:00 an.</div>';return '<div class="entry-list">'+a.slice().sort((x,y)=>(x.time||'').localeCompare(y.time||'')).map(f=>`<div class="entry"><div class="entry-head"><b>🥕 ${escapeHtml(f.time)} · ${escapeHtml(f.label||f.type||'Futter')}</b><button class="smallbtn danger" onclick="removeFeedingTime('${h.id}','${f.id}')">Löschen</button></div><div class="muted">Täglich · erscheint automatisch in „Heute“ und kann eine Benachrichtigung auslösen.</div></div>`).join('')+'</div>'}
 function medicationAppliesToday(m){let day=(new Date().getDay()+6)%7;return medicationDays(m).includes(day)}
 function getAutoTodayItems(){let date=todayISO(),hs=getHorses(),items=[],done=getDailyDone();getRoutines().filter(routineAppliesToday).forEach(r=>items.push({key:`routine:${r.id}:${date}`,title:r.title,meta:`Routine${r.time?' · '+r.time:''}`,done:!!done[`routine:${r.id}:${date}`]}));hs.forEach(h=>(h.feedingTimes||[]).filter(f=>f.enabled!==false).forEach(f=>items.push({key:`feed:${h.id}:${f.id}:${date}`,title:`Füttern – ${f.label}`,meta:`🥕 ${h.name} · ${f.time} Uhr`,done:!!done[`feed:${h.id}:${f.id}:${date}`]})));hs.forEach(h=>(h.medications||[]).filter(m=>m.reminderTime&&medicationAppliesToday(m)).forEach(m=>items.push({key:`med:${h.id}:${m.id}:${date}`,title:`Medikament – ${m.name}`,meta:`💊 ${h.name} · ${m.reminderTime} Uhr`,done:!!done[`med:${h.id}:${m.id}:${date}`]})));hs.filter(h=>h.outdoorType&&h.outdoorFrequency==='täglich').forEach(h=>items.push({key:`outdoor:${h.id}:${date}`,title:`Auslauf – ${h.outdoorType}`,meta:`🌿 ${h.name}${h.outdoorFrom||h.outdoorTo?' · '+(h.outdoorFrom||'—')+'–'+(h.outdoorTo||'—'):''}${h.outdoorCare?' · '+h.outdoorCare:''}`,done:!!done[`outdoor:${h.id}:${date}`]}));return items}
