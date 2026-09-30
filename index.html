@@ -205,7 +205,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.12.1 – Stable Sync: Horses + Routines + Daily Tasks */
+/* HorseHub 1.13.0 – Unified Sync: Horses + Routines + Daily Tasks */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -606,20 +606,21 @@ async function handleForgotPassword(){const email=$('authEmail').value.trim();if
 function showAuthenticated(session,user){horseHubCloudUser=user;$('authLoading')?.classList.add('hidden');$('authGate')?.classList.add('hidden');$('horsehubApp')?.classList.remove('hidden');if($('accountEmail'))$('accountEmail').textContent=user.email||'–';setAuthMode('login');renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();syncHorsesWithCloud();syncRoutinesAndDailyTasks()}
 function showAuthGate(){$('horsehubApp')?.classList.add('hidden');$('authLoading')?.classList.add('hidden');$('authGate')?.classList.remove('hidden');setAuthMode('login')}
 
-/* 1.12.1 – Cloud sync for routines and daily task completion */
+/* 1.13.0 – Unified cloud sync for routines and daily task completion */
 let routineCloudSyncing=false;
 let routineCloudTimer=null;
+let routineCloudSyncPending=false;
 let dailyCloudSyncing=false;
 const ROUTINE_SYNC_TABLE='horsehub_routines';
 const DAILY_TASK_TABLE='horsehub_daily_tasks';
 const TASK_COMPLETION_TABLE='horsehub_task_completions';
-function queueRoutineCloudSync(){if(!horseHubCloudUser)return;clearTimeout(routineCloudTimer);routineCloudTimer=setTimeout(()=>syncRoutinesAndDailyTasks(),500)}
-function queueDailyTaskCloudSync(){if(!horseHubCloudUser)return;clearTimeout(routineCloudTimer);routineCloudTimer=setTimeout(()=>syncRoutinesAndDailyTasks(),500)}
+function queueRoutineCloudSync(){if(!horseHubCloudUser)return;routineCloudSyncPending=true;clearTimeout(routineCloudTimer);routineCloudTimer=setTimeout(()=>syncRoutinesAndDailyTasks(),500)}
+function queueDailyTaskCloudSync(){if(!horseHubCloudUser)return;routineCloudSyncPending=true;clearTimeout(routineCloudTimer);routineCloudTimer=setTimeout(()=>syncRoutinesAndDailyTasks(),500)}
 function routineRow(r){const h=r.horseId?getHorses().find(x=>x.id===r.horseId):null;return {id:r.id,owner_id:horseHubCloudUser.id,horse_id:h?.cloud_id||null,title:r.title||'',frequency:r.frequency||'täglich',time:r.time||null,weekday:Number.isInteger(r.weekday)?r.weekday:null,enabled:r.enabled!==false,updated_at:r.local_updated_at||new Date().toISOString(),deleted_at:r.deleted_at||null}}
 function routineFromCloud(row){const h=row.horse_id?getHorses().find(x=>x.cloud_id===row.horse_id):null;return {id:row.id,title:row.title||'',horseId:h?.id||'',frequency:row.frequency||'täglich',time:row.time||'',weekday:row.weekday==null?null:row.weekday,enabled:row.enabled!==false,deleted_at:row.deleted_at||null,cloud_synced_at:row.updated_at||'',local_updated_at:row.updated_at||'',cloud_dirty:false}}
 function dailyDoneMeta(){try{return JSON.parse(localStorage.getItem('dailyDoneMeta')||'{}')||{}}catch(e){return {}}}
 function taskCompletionRows(){const done=getDailyDone(),meta=dailyDoneMeta(),out=[];for(const [key,value] of Object.entries(done)){const m=meta[key];if(!m?.updated_at)continue;const parts=key.split(':');const date=parts[parts.length-1];if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))continue;out.push({owner_id:horseHubCloudUser.id,task_key:key,task_date:date,done:!!value,updated_at:m.updated_at})}return out}
-async function syncRoutinesAndDailyTasks(){if(!horseHubCloudUser||routineCloudSyncing)return;routineCloudSyncing=true;try{await syncRoutines();await syncDailyTaskCompletions();await syncManualTodayTasks()}catch(e){console.warn('Routinen-/Aufgaben-Sync fehlgeschlagen',e);setCloudStatus(`⚠️ Routinen/Aufgaben-Sync: ${cloudErrorText(e)}`,true)}finally{routineCloudSyncing=false}}
+async function syncRoutinesAndDailyTasks(){if(!horseHubCloudUser){return}if(routineCloudSyncing){routineCloudSyncPending=true;return}routineCloudSyncing=true;routineCloudSyncPending=false;try{await syncRoutines();await syncDailyTaskCompletions();await syncManualTodayTasks()}catch(e){console.warn('Routinen-/Aufgaben-Sync fehlgeschlagen',e);setCloudStatus(`⚠️ Routinen/Aufgaben-Sync: ${cloudErrorText(e)}`,true)}finally{routineCloudSyncing=false;if(routineCloudSyncPending){clearTimeout(routineCloudTimer);routineCloudTimer=setTimeout(()=>syncRoutinesAndDailyTasks(),250)}}}
 async function syncRoutines(){
   const local=getRoutines();
   const {data,error}=await supabaseClient.from(ROUTINE_SYNC_TABLE).select('id,owner_id,horse_id,title,frequency,time,weekday,enabled,updated_at,deleted_at').eq('owner_id',horseHubCloudUser.id);
@@ -641,24 +642,80 @@ async function syncRoutines(){
   if(upserts.length){const {data:written,error:e}=await supabaseClient.from(ROUTINE_SYNC_TABLE).upsert(upserts,{onConflict:'owner_id,id'}).select('id,updated_at');if(e)throw e;const byWritten=new Map((written||[]).map(x=>[x.id,x.updated_at]));const refreshed=getRoutines().map(r=>byWritten.has(r.id)?{...r,cloud_synced_at:byWritten.get(r.id),local_updated_at:r.local_updated_at||byWritten.get(r.id),cloud_dirty:false}:r);localStorage.setItem('routines',JSON.stringify(refreshed));renderRoutines();renderTodayTasks()}
 }
 async function syncDailyTaskCompletions(){
-  const {data,error}=await supabaseClient.from(TASK_COMPLETION_TABLE).select('task_key,task_date,done,updated_at').eq('owner_id',horseHubCloudUser.id).gte('task_date',new Date(Date.now()-31*86400000).toISOString().slice(0,10));
+  const cutoff=new Date(Date.now()-31*86400000).toISOString().slice(0,10);
+  const {data,error}=await supabaseClient.from(TASK_COMPLETION_TABLE).select('task_key,task_date,done,updated_at').eq('owner_id',horseHubCloudUser.id).gte('task_date',cutoff);
   if(error)throw error;
   const local=getDailyDone(),meta=dailyDoneMeta(),cloud=Array.isArray(data)?data:[],byKey=new Map(cloud.map(x=>[x.task_key,x]));
-  for(const c of cloud){const m=meta[c.task_key],lu=new Date(m?.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();if(!m||cu>lu){local[c.task_key]=!!c.done;meta[c.task_key]={done:!!c.done,updated_at:c.updated_at||new Date().toISOString()}}}
-  localStorage.setItem('dailyDone',JSON.stringify(local));localStorage.setItem('dailyDoneMeta',JSON.stringify(meta));renderTodayTasks();
-  const rows=taskCompletionRows();if(rows.length){const {error:e}=await supabaseClient.from(TASK_COMPLETION_TABLE).upsert(rows,{onConflict:'owner_id,task_key'}).select('task_key,updated_at');if(e)throw e}
+  const localSnapshot=JSON.parse(JSON.stringify(meta));
+  let changed=false;
+  for(const c of cloud){
+    const m=meta[c.task_key],lu=new Date(m?.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();
+    if(!m||cu>lu){local[c.task_key]=!!c.done;meta[c.task_key]={done:!!c.done,updated_at:c.updated_at||new Date().toISOString()};changed=true}
+  }
+  if(changed){localStorage.setItem('dailyDone',JSON.stringify(local));localStorage.setItem('dailyDoneMeta',JSON.stringify(meta));renderTodayTasks()}
+  // Only upload completion records that were locally changed after their last
+  // confirmed cloud timestamp. Never upsert the whole local completion map.
+  for(const [key,m] of Object.entries(localSnapshot)){
+    if(!m?.updated_at)continue;
+    const currentMeta=dailyDoneMeta()[key];
+    if(!currentMeta||currentMeta.updated_at!==m.updated_at)continue; // changed again while sync was running
+    const localTs=new Date(m.updated_at||0).getTime();
+    const c=byKey.get(key);
+    const cloudTs=new Date(c?.updated_at||0).getTime();
+    if(c&&cloudTs>localTs)continue; // cloud is newer; it already won above
+    const payload={owner_id:horseHubCloudUser.id,task_key:key,task_date:(c?.task_date||key.split(':').slice(-1)[0]),done:!!local[key],updated_at:new Date().toISOString()};
+    let q=supabaseClient.from(TASK_COMPLETION_TABLE).update({done:payload.done,task_date:payload.task_date,updated_at:payload.updated_at}).eq('owner_id',horseHubCloudUser.id).eq('task_key',key);
+    if(c?.updated_at)q=q.eq('updated_at',c.updated_at);
+    const {data:written,error:e}=await q.select('task_key,updated_at').maybeSingle();
+    if(e)throw e;
+    if(!written){
+      if(!c){
+        const ins=await supabaseClient.from(TASK_COMPLETION_TABLE).insert(payload).select('task_key,updated_at').maybeSingle();
+        if(ins.error&&ins.error.code!=='23505')throw ins.error;
+        if(ins.data) {const mm=dailyDoneMeta();if(mm[key]?.updated_at===m.updated_at){mm[key]={done:payload.done,updated_at:ins.data.updated_at};localStorage.setItem('dailyDoneMeta',JSON.stringify(mm));}}
+      }else{
+        // Another device changed it between read and write. Leave the cloud
+        // version authoritative; a later sync will pull it locally.
+        continue;
+      }
+    }else{
+      const mm=dailyDoneMeta();if(mm[key]?.updated_at===m.updated_at){mm[key]={done:payload.done,updated_at:written.updated_at};localStorage.setItem('dailyDoneMeta',JSON.stringify(mm));}
+    }
+  }
 }
 async function syncManualTodayTasks(){
   const local=JSON.parse(localStorage.getItem('todayTasks')||'[]'), byId=new Map(local.map(t=>[t.id,t]));
-  const tombstones=JSON.parse(localStorage.getItem('todayTaskTombstones')||'{}');
   const {data,error}=await supabaseClient.from(DAILY_TASK_TABLE).select('id,owner_id,title,horse_id,task_date,done,updated_at,deleted_at').eq('owner_id',horseHubCloudUser.id);
-  if(error)throw error;const cloud=Array.isArray(data)?data:[], result=[];
-  for(const t of local){const c=cloud.find(x=>x.id===t.id);if(!c){if(t.cloud_synced_at)continue;result.push(t);continue}const lu=new Date(t.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();if(lu>cu)result.push(t);else if(c.deleted_at){}else result.push({...t,title:c.title,horseId:(getHorses().find(h=>h.cloud_id===c.horse_id)?.id||t.horseId||''),date:c.task_date,done:!!c.done,updated_at:c.updated_at})}
-  for(const c of cloud)if(!byId.has(c.id)&&!c.deleted_at)result.push({id:c.id,title:c.title||'',horseId:(getHorses().find(h=>h.cloud_id===c.horse_id)?.id||''),date:c.task_date,done:!!c.done,updated_at:c.updated_at})
+  if(error)throw error;
+  const cloud=Array.isArray(data)?data:[], cloudById=new Map(cloud.map(x=>[x.id,x])), result=[];
+  for(const t of local){
+    const c=cloudById.get(t.id);
+    if(!c){if(t.cloud_synced_at||t.deleted_at)continue;result.push(t);continue}
+    const lu=new Date(t.updated_at||0).getTime(), cu=new Date(c.updated_at||0).getTime();
+    const localDirty=!!t.cloud_dirty || lu>new Date(t.cloud_synced_at||0).getTime();
+    if(c.deleted_at&&(!localDirty||cu>=lu)){continue}
+    if(localDirty&&lu>cu){result.push(t)}
+    else if(cu>lu||!localDirty){result.push({...t,title:c.title,horseId:(getHorses().find(h=>h.cloud_id===c.horse_id)?.id||t.horseId||''),date:c.task_date,done:!!c.done,updated_at:c.updated_at,cloud_synced_at:c.updated_at,cloud_dirty:false})}
+    else result.push({...t,cloud_synced_at:c.updated_at,cloud_dirty:false})
+  }
+  for(const c of cloud)if(!byId.has(c.id)&&!c.deleted_at)result.push({id:c.id,title:c.title||'',horseId:(getHorses().find(h=>h.cloud_id===c.horse_id)?.id||''),date:c.task_date,done:!!c.done,updated_at:c.updated_at,cloud_synced_at:c.updated_at,cloud_dirty:false});
+  const tombstones=JSON.parse(localStorage.getItem('todayTaskTombstones')||'{}');
   localStorage.setItem('todayTasks',JSON.stringify(result));renderTodayTasks();
-  const rows=result.map(t=>({id:t.id,owner_id:horseHubCloudUser.id,title:t.title||'',horse_id:(getHorses().find(h=>h.id===t.horseId)?.cloud_id)||null,task_date:t.date,done:!!t.done,updated_at:t.updated_at||new Date().toISOString(),deleted_at:t.deleted_at||null}));
-  for(const [id,ts] of Object.entries(tombstones))rows.push({id,owner_id:horseHubCloudUser.id,title:'',horse_id:null,task_date:todayISO(),done:false,updated_at:ts.deleted_at,deleted_at:ts.deleted_at});
-  if(rows.length){const {data:written,error:e}=await supabaseClient.from(DAILY_TASK_TABLE).upsert(rows,{onConflict:'owner_id,id'}).select('id,updated_at');if(e)throw e;const byWritten=new Map((written||[]).map(x=>[x.id,x.updated_at]));const synced=result.map(t=>byWritten.has(t.id)?{...t,cloud_synced_at:byWritten.get(t.id),cloud_dirty:false}:t);localStorage.setItem('todayTasks',JSON.stringify(synced))}
+  for(const t of result){
+    const localDirty=!!t.cloud_dirty || new Date(t.updated_at||0).getTime()>new Date(t.cloud_synced_at||0).getTime();
+    const c=cloudById.get(t.id);
+    if(!localDirty&&!(!c))continue;
+    const payload={owner_id:horseHubCloudUser.id,id:t.id,title:t.title||'',horse_id:(getHorses().find(h=>h.id===t.horseId)?.cloud_id)||null,task_date:t.date,done:!!t.done,updated_at:new Date().toISOString(),deleted_at:t.deleted_at||null};
+    if(c){
+      let q=supabaseClient.from(DAILY_TASK_TABLE).update({title:payload.title,horse_id:payload.horse_id,task_date:payload.task_date,done:payload.done,updated_at:payload.updated_at,deleted_at:payload.deleted_at}).eq('owner_id',horseHubCloudUser.id).eq('id',t.id).eq('updated_at',c.updated_at);
+      const {data:written,error:e}=await q.select('id,updated_at').maybeSingle();if(e)throw e;if(written){const arr=JSON.parse(localStorage.getItem('todayTasks')||'[]').map(x=>x.id===t.id?{...x,cloud_synced_at:written.updated_at,cloud_dirty:false,updated_at:written.updated_at}:x);localStorage.setItem('todayTasks',JSON.stringify(arr))}
+    }else{
+      const {data:written,error:e}=await supabaseClient.from(DAILY_TASK_TABLE).insert(payload).select('id,updated_at').maybeSingle();if(e&&e.code!=='23505')throw e;if(written){const arr=JSON.parse(localStorage.getItem('todayTasks')||'[]').map(x=>x.id===t.id?{...x,cloud_synced_at:written.updated_at,cloud_dirty:false,updated_at:written.updated_at}:x);localStorage.setItem('todayTasks',JSON.stringify(arr))}
+    }
+  }
+  // Tombstones are written with their own timestamp and are never allowed to
+  // resurrect a task from an older local snapshot.
+  for(const [id,ts] of Object.entries(tombstones)){const c=cloudById.get(id);if(!c||new Date(ts.deleted_at).getTime()>new Date(c.updated_at||0).getTime()){let q=supabaseClient.from(DAILY_TASK_TABLE).update({deleted_at:ts.deleted_at,updated_at:ts.deleted_at}).eq('owner_id',horseHubCloudUser.id).eq('id',id);if(c?.updated_at)q=q.eq('updated_at',c.updated_at);const {error:e}=await q.select('id').maybeSingle();if(e)throw e}}
 }
 async function signOutHorseHub(){horseHubCloudUser=null;const {error}=await supabaseClient.auth.signOut();if(error){showAuthMessage(authErrorText(error),true);return}showAuthGate()}
 function handleAuthHashError(){const hash=window.location.hash||'';if(!hash.includes('error_code='))return;const params=new URLSearchParams(hash.replace(/^#/,'?'));const code=params.get('error_code');const desc=params.get('error_description');if(code==='otp_expired')showAuthMessage('Der Bestätigungslink ist abgelaufen oder wurde bereits verwendet. Bitte fordere eine neue Bestätigungs-E-Mail an.');else if(desc)showAuthMessage(decodeURIComponent(desc.replace(/\+/g,' ')),true);if(window.history&&window.history.replaceState)window.history.replaceState({},document.title,window.location.pathname+window.location.search)}
@@ -934,7 +991,7 @@ window.addEventListener('focus',()=>{clearTimeout(horseHubRefreshTimer);horseHub
 function todayISO(){return localISODate(new Date())}
 function cleanupDailyState(){const today=todayISO();let done=getDailyDone();done=Object.fromEntries(Object.entries(done).filter(([key])=>key.endsWith(':'+today)));localStorage.setItem('dailyDone',JSON.stringify(done));let tasks=JSON.parse(localStorage.getItem('todayTasks')||'[]');tasks=tasks.filter(t=>t.date===today);localStorage.setItem('todayTasks',JSON.stringify(tasks));return tasks}
 function getTodayTasks(){return cleanupDailyState()}
-function saveTodayTasks(a){const now=new Date().toISOString();a=a.map(t=>({...t,updated_at:t.updated_at||now}));localStorage.setItem('todayTasks',JSON.stringify(a));renderTodayTasks();queueDailyTaskCloudSync()}
+function saveTodayTasks(a){const now=new Date().toISOString();a=a.map(t=>({...t,updated_at:now,cloud_dirty:true}));localStorage.setItem('todayTasks',JSON.stringify(a));renderTodayTasks();queueDailyTaskCloudSync()}
 function addTodayTask(){let title=prompt('Was möchtest du heute erledigen?','Stall misten');if(!title?.trim())return;let tasks=cleanupDailyState();tasks.push({id:'tt'+Date.now()+'-'+Math.random().toString(36).slice(2,7),title:title.trim(),horseId:'',date:todayISO(),done:false,updated_at:new Date().toISOString()});saveTodayTasks(tasks)}
 function toggleTodayTask(id){let tasks=cleanupDailyState().map(t=>t.id===id?{...t,done:!t.done,updated_at:new Date().toISOString()}:t);saveTodayTasks(tasks)}
 function deleteTodayTask(id){let tasks=cleanupDailyState();let t=tasks.find(x=>x.id===id);if(!t)return;let ts=JSON.parse(localStorage.getItem('todayTaskTombstones')||'{}');ts[id]={deleted_at:new Date().toISOString()};localStorage.setItem('todayTaskTombstones',JSON.stringify(ts));saveTodayTasks(tasks.filter(x=>x.id!==id))}
