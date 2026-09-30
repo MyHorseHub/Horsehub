@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.25</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.26</div>
 </div>
 
 </section>
@@ -205,7 +205,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.10.25 – harter Schutz vor veralteten Cloud-Antworten */
+/* HorseHub 1.10.26 – lokaler Cloud-Pull-Schutz */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -296,6 +296,17 @@ async function syncHorseToCloud(id){
   }
 }
 function queueHorseCloudSync(id){if(!horseHubCloudUser||!id)return;clearTimeout(horseHubCloudTimers.get(id));const t=setTimeout(()=>{if(horseHubCloudSyncing){clearTimeout(horseHubCloudTimers.get(id));horseHubCloudTimers.set(id,setTimeout(()=>syncHorseToCloud(id),1200));return}syncHorseToCloud(id)},350);horseHubCloudTimers.set(id,t)}
+function hasUnsentLocalHorseChanges(h){
+  if(!h)return false;
+  if(!h.cloud_id)return true;
+  const localTs=new Date(h.local_updated_at||0).getTime();
+  const syncedTs=new Date(h.cloud_synced_at||0).getTime();
+  // cloud_dirty from older builds can remain true even though the local
+  // snapshot is already older/equal to the confirmed cloud snapshot.
+  // Only a genuinely newer local timestamp counts as an unsent edit.
+  return localTs>syncedTs || (!!h.cloud_dirty && !h.cloud_synced_at);
+}
+
 async function syncCurrentHorseFromCloud(localId){
   if(!horseHubCloudUser||!localId||horseHubCloudSyncing)return;
   const localHorse=getHorses().find(x=>x.id===localId);
@@ -325,7 +336,7 @@ async function syncCurrentHorseFromCloud(localId){
   }
   const synced=localHorse.cloud_synced_at||'';
   const cloudChanged=!synced||new Date(data.updated_at||0).getTime()>new Date(synced||0).getTime();
-  const localChangeSinceSync=localHorse.cloud_dirty===true || new Date(localHorse.local_updated_at||0).getTime()>new Date(synced||0).getTime();
+  const localChangeSinceSync=hasUnsentLocalHorseChanges(localHorse);
   let final=localHorse;
   if(cloudChanged&&!localChangeSinceSync){
     // The cloud has changed since our last confirmed sync and the local
@@ -398,7 +409,7 @@ async function syncHorsesWithCloud(){
       const local=localByCloudId.get(row.id)||localById.get(rowLocalId)||null;
       if(local){
         usedLocalIds.add(local.id);
-        const localDirty=local.cloud_dirty===true;
+        const localDirty=hasUnsentLocalHorseChanges(local);
         const lt=new Date(local.local_updated_at||0).getTime();
         const ct=new Date(row.updated_at||0).getTime();
         if(localDirty){
@@ -423,7 +434,7 @@ async function syncHorsesWithCloud(){
     for(const local of localBefore){
       if(usedLocalIds.has(local.id))continue;
       if(local.cloud_id){
-        if(local.cloud_dirty===true){
+        if(hasUnsentLocalHorseChanges(local)){
           result.push(local);
           unsyncedLocals.push(local);
         }
