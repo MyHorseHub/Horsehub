@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.9</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.10</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.9 – stabile 1.10.8 Basis + individuelle Fütterung */
+/* HorseHub 1.10.10 – stabile 1.10.8 Basis + individuelle Fütterung */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -283,7 +283,11 @@ async function syncCurrentHorseFromCloud(localId){
   }else{
     final={...mergeCloudHorse(localHorse,data),cloud_synced_at:data.updated_at||synced};
   }
-  localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===localId?final:x)));
+  const latestNow=getHorses().find(x=>x.id===localId);
+const finalTs=new Date(final?.local_updated_at||0).getTime();
+const latestTs=new Date(latestNow?.local_updated_at||0).getTime();
+const writeFinal=latestNow&&latestTs>finalTs?latestNow:final;
+localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===localId?writeFinal:x)));
   renderHorses();
 }
 
@@ -314,6 +318,25 @@ const known=new Set(local.map(h=>h.cloud_id).filter(Boolean));for(const row of c
 const cloudIds=new Set(cloudRows.map(r=>r.id));
 local=local.filter(h=>!h.cloud_id||cloudIds.has(h.cloud_id));
 for(const row of cloudRows){const h=local.find(x=>x.cloud_id===row.id);if(!h)continue;const path=row.photo_url||h.photo_path||'';if(path){try{const url=await getHorsePhotoUrl(path);h.photo_path=path;h.photo=url;h.photo_dirty=false;h.photo_removed=false}catch(e){console.warn('Pferdefoto konnte nicht geladen werden',e)}}}
+// Reconcile changes that happened while this full sync was running.
+// The `local` array was captured at the beginning of the async operation;
+// use the latest local state for horses that were changed in the meantime.
+const latestLocal=getHorses();
+const syncById=new Map(local.map(x=>[x.id,x]));
+for(const latest of latestLocal){
+  const syncedVersion=syncById.get(latest.id);
+  if(!syncedVersion){
+    // A new local horse appeared while sync was running.
+    local.push(latest);
+    continue;
+  }
+  const latestTs=new Date(latest.local_updated_at||0).getTime();
+  const syncTs=new Date(syncedVersion.local_updated_at||0).getTime();
+  if(latestTs>syncTs){
+    const i=local.findIndex(x=>x.id===latest.id);
+    if(i>=0)local[i]=latest;
+  }
+}
 localStorage.setItem('horses',JSON.stringify(local));renderHorses();renderHorseProfilesOnly();setCloudStatus(`☁️ ${local.length} Pferd${local.length===1?'':'e'} und ihre Fotos synchronisiert.`)}catch(e){console.error('Cloud-Sync Fehler',e);setCloudStatus(`⚠️ Cloud-Synchronisierung fehlgeschlagen: ${cloudErrorText(e)}. HorseHub arbeitet weiter mit deinen lokalen Daten.`,true)}finally{horseHubCloudSyncing=false}}
 
 async function deleteHorseFromCloud(cloudId){if(!horseHubCloudUser||!cloudId)return;try{const photoPath=horsePhotoPath(cloudId);const {error:photoError}=await supabaseClient.storage.from(HORSE_PHOTO_BUCKET).remove([photoPath]);if(photoError&&photoError.statusCode!=='404')console.warn('Cloud-Pferdefoto konnte nicht gelöscht werden',photoError);const {error}=await supabaseClient.from('horses').delete().eq('id',cloudId).eq('owner_id',horseHubCloudUser.id);if(error)throw error;setCloudStatus('☁️ Pferd und Foto aus der Cloud gelöscht.')}catch(e){console.warn('Cloud-Pferd konnte nicht gelöscht werden',e);setCloudStatus('⚠️ Das Pferd wurde lokal gelöscht, konnte aber noch nicht vollständig aus der Cloud entfernt werden.',true)}}
