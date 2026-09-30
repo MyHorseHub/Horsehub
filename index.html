@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.12</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.13</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.12 – stabile 1.10.8 Basis + individuelle Fütterung */
+/* HorseHub 1.10.13 – stabile 1.10.8 Basis + individuelle Fütterung */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -291,7 +291,7 @@ localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===localId?w
   renderHorses();
 }
 
-async function syncHorsesWithCloud(){if(!horseHubCloudUser||horseHubCloudSyncing)return;horseHubCloudSyncing=true;setCloudStatus('☁️ Pferdedaten und Fotos werden synchronisiert …');try{const {data,error}=await supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id).order('created_at',{ascending:true});if(error)throw error;let local=getHorses();const cloudRows=data||[];const cloudById=new Map(cloudRows.map(r=>[r.id,r]));const cloudByLocalId=new Map();for(const row of cloudRows){const d=row.details&&typeof row.details==='object'?row.details:{};if(!d._local_id)continue;if(!cloudByLocalId.has(d._local_id))cloudByLocalId.set(d._local_id,[]);cloudByLocalId.get(d._local_id).push(row)}const oldestRow=rows=>[...rows].sort((a,b)=>new Date(a.created_at||0)-new Date(b.created_at||0))[0]||null;
+async function syncHorsesWithCloud(){if(!horseHubCloudUser||horseHubCloudSyncing)return;horseHubCloudSyncing=true;setCloudStatus('☁️ Pferdedaten und Fotos werden synchronisiert …');try{const {data,error}=await supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id).order('created_at',{ascending:true});if(error)throw error;let local=getHorses();const initialLocalMeta=new Map(local.map(h=>[h.id,{local_updated_at:h.local_updated_at||'',cloud_dirty:!!h.cloud_dirty}]));const cloudRows=data||[];const cloudById=new Map(cloudRows.map(r=>[r.id,r]));const cloudByLocalId=new Map();for(const row of cloudRows){const d=row.details&&typeof row.details==='object'?row.details:{};if(!d._local_id)continue;if(!cloudByLocalId.has(d._local_id))cloudByLocalId.set(d._local_id,[]);cloudByLocalId.get(d._local_id).push(row)}const oldestRow=rows=>[...rows].sort((a,b)=>new Date(a.created_at||0)-new Date(b.created_at||0))[0]||null;
 for(const h0 of [...local]){let h=local.find(x=>x.id===h0.id)||h0;let cloudId=h.cloud_id;let row=cloudId?cloudById.get(cloudId):null;if(!row){const matches=cloudByLocalId.get(h.id)||[];row=oldestRow(matches);if(row){cloudId=row.id;h={...h,cloud_id:cloudId};local=local.map(x=>x.id===h.id?h:x)}}
 if(cloudId&&row){const synced=h.cloud_synced_at||'';const localChanged=!!h.cloud_dirty;const cloudChanged=!synced||new Date(row.updated_at||0)>new Date(synced);let final=h;let finalSynced=row.updated_at||synced;
 if(!synced){
@@ -324,15 +324,18 @@ for(const row of cloudRows){const h=local.find(x=>x.cloud_id===row.id);if(!h)con
 const latestLocal=getHorses();
 const syncById=new Map(local.map(x=>[x.id,x]));
 for(const latest of latestLocal){
-  const syncedVersion=syncById.get(latest.id);
-  if(!syncedVersion){
+  const initial=initialLocalMeta.get(latest.id);
+  if(!initial){
     // A new local horse appeared while sync was running.
-    local.push(latest);
+    if(!syncById.has(latest.id))local.push(latest);
     continue;
   }
   const latestTs=new Date(latest.local_updated_at||0).getTime();
-  const syncTs=new Date(syncedVersion.local_updated_at||0).getTime();
-  if(latestTs>syncTs){
+  const initialTs=new Date(initial.local_updated_at||0).getTime();
+  // Only re-apply a local record when it was actually changed while this
+  // sync was running. Do NOT compare against the cloud-merged timestamp,
+  // otherwise an older local record can overwrite a newer cloud deletion/change.
+  if(latestTs>initialTs || (!!latest.cloud_dirty && !initial.cloud_dirty)){
     const i=local.findIndex(x=>x.id===latest.id);
     if(i>=0)local[i]=latest;
   }
@@ -612,7 +615,7 @@ let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;const b=$('installButton');if(b)b.classList.remove('hidden');const st=$('installStatus');if(st)st.textContent='Installation verfügbar';});
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;const b=$('installButton');if(b)b.classList.add('hidden');const st=$('installStatus');if(st)st.textContent='✅ HorseHub ist installiert';});
 async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Installationsdialog erscheint, öffne das Browser-Menü ⋮ und wähle „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null}
-async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.12',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
+async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.13',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleDailyReset();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
 </script>
