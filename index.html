@@ -205,7 +205,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.10.26 – lokaler Cloud-Pull-Schutz */
+/* HorseHub 1.10.27 – lokaler Cloud-Pull-Schutz */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -412,8 +412,10 @@ async function syncHorsesWithCloud(){
         const localDirty=hasUnsentLocalHorseChanges(local);
         const lt=new Date(local.local_updated_at||0).getTime();
         const ct=new Date(row.updated_at||0).getTime();
-        if(localDirty){
-          // Local edits stay authoritative until their exact snapshot is uploaded.
+        // Resolve the source of truth by timestamps. A newer cloud row must
+        // be pulled even if an older build left cloud_dirty/local sync state
+        // behind. Only a genuinely newer local snapshot is uploaded back.
+        if(lt>ct){
           result.push({...local,cloud_id:row.id});
           unsyncedLocals.push({...local,cloud_id:row.id});
         }else{
