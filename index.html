@@ -174,7 +174,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.16</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.10.17</div>
 </div>
 
 </section>
@@ -199,7 +199,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <script>
 const $=id=>document.getElementById(id);
 const starterHorses=[];
-/* HorseHub 1.10.16 – stabile 1.10.8 Basis + individuelle Fütterung */
+/* HorseHub 1.10.17 – stabile 1.10.8 Basis + individuelle Fütterung */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -307,8 +307,12 @@ async function syncHorsesWithCloud(){
   horseHubCloudSyncing=true;
   setCloudStatus('☁️ Pferdedaten und Fotos werden synchronisiert …');
   try{
-    const {data,error}=await supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id).order('created_at',{ascending:true});
+    const {data,error}=await supabaseClient.from('horses')
+      .select('id,name,photo_url,details,created_at,updated_at')
+      .eq('owner_id',horseHubCloudUser.id)
+      .order('created_at',{ascending:true});
     if(error)throw error;
+
     let local=getHorses();
     const cloudRows=data||[];
     const cloudById=new Map(cloudRows.map(r=>[r.id,r]));
@@ -321,120 +325,137 @@ async function syncHorsesWithCloud(){
     }
     const oldestRow=rows=>[...rows].sort((a,b)=>new Date(a.created_at||0)-new Date(b.created_at||0))[0]||null;
 
+    // 1) Reconcile every locally known horse against the current cloud list.
+    // cloud_dirty is the explicit signal for a real unsynced local edit.
+    // Do not use old timestamps to resurrect a horse that was deleted in the cloud.
     for(const h0 of [...local]){
       let h=local.find(x=>x.id===h0.id)||h0;
       let cloudId=h.cloud_id;
       let row=cloudId?cloudById.get(cloudId):null;
+
+      // Recover a cloud link by the stable local id if necessary.
       if(!row){
         const matches=cloudByLocalId.get(h.id)||[];
         row=oldestRow(matches);
-        if(row){cloudId=row.id;clearHorseDeletionTombstone(cloudId);h={...h,cloud_id:cloudId};local=local.map(x=>x.id===h.id?h:x);}
+        if(row){
+          cloudId=row.id;
+          clearHorseDeletionTombstone(cloudId);
+          h={...h,cloud_id:cloudId};
+          local=local.map(x=>x.id===h.id?h:x);
+        }
+      }
+
+      // A linked horse missing from the authoritative cloud list was deleted remotely.
+      // Only a deliberate, unsynced local edit may recreate it.
+      if(cloudId&&!row){
+        if(h.cloud_dirty===true){
+          try{
+            const at=await updateHorseInCloud({...h,cloud_id:cloudId});
+            local=local.map(x=>x.id===h.id?{...h,cloud_synced_at:at,cloud_dirty:false}:x);
+          }catch(e){
+            console.warn('Lokale Änderung konnte nach Cloud-Löschung nicht wiederhergestellt werden',e);
+          }
+        }else{
+          local=local.filter(x=>x.id!==h.id);
+        }
+        continue;
       }
 
       if(cloudId&&row){
         const synced=h.cloud_synced_at||'';
+        const localDirty=h.cloud_dirty===true;
         const cloudChanged=!synced||new Date(row.updated_at||0).getTime()>new Date(synced||0).getTime();
-        const localChangeSinceSync=new Date(h.local_updated_at||0).getTime()>new Date(synced||0).getTime();
         let final=h;
         let finalSynced=row.updated_at||synced;
 
-        if(cloudChanged&&!localChangeSinceSync){
+        if(!localDirty){
+          // No pending local edit: cloud is authoritative.
           final={...mergeCloudHorse(h,row),local_updated_at:row.updated_at||'',cloud_synced_at:row.updated_at||'',cloud_dirty:false};
-        }else if(localChangeSinceSync&&!cloudChanged){
+        }else if(!cloudChanged){
           const at=await updateHorseInCloud({...h,cloud_id:cloudId});
-          final={...h,cloud_synced_at:at,cloud_dirty:false};finalSynced=at;
-        }else if(localChangeSinceSync&&cloudChanged){
-          if(new Date(h.local_updated_at||0).getTime()>new Date(row.updated_at||0).getTime()){
+          final={...h,cloud_synced_at:at,cloud_dirty:false};
+          finalSynced=at;
+        }else{
+          // Both sides changed. A local dirty change wins only when it is
+          // explicitly newer than the cloud update.
+          const lt=new Date(h.local_updated_at||0).getTime();
+          const ct=new Date(row.updated_at||0).getTime();
+          if(lt>ct){
             const at=await updateHorseInCloud({...h,cloud_id:cloudId});
-            final={...h,cloud_synced_at:at,cloud_dirty:false};finalSynced=at;
+            final={...h,cloud_synced_at:at,cloud_dirty:false};
+            finalSynced=at;
           }else{
             final={...mergeCloudHorse(h,row),local_updated_at:row.updated_at||'',cloud_synced_at:row.updated_at||'',cloud_dirty:false};
           }
-        }else{
-          final={...mergeCloudHorse(h,row),cloud_synced_at:row.updated_at||synced,cloud_dirty:false};
         }
-        // Foto-Sync darf den Pferdedaten-Abgleich niemals abbrechen.
+
+        // Photo sync is isolated; a photo error must never cancel horse data sync.
         try{
           const photo=await syncHorsePhoto({...h,...final,cloud_id:cloudId},cloudId);
           final={...final,cloud_id:cloudId,photo_path:photo.path||final.photo_path||'',photo:photo.url||final.photo||'',photo_dirty:false,photo_removed:false,cloud_synced_at:final.cloud_synced_at||finalSynced||''};
         }catch(photoError){
-          console.warn('Foto-Sync für Pferd fehlgeschlagen; Pferdedaten werden trotzdem übernommen',photoError);
+          console.warn('Foto-Sync für Pferd fehlgeschlagen; Pferdedaten bleiben gespeichert',photoError);
           final={...final,cloud_id:cloudId};
         }
         local=local.map(x=>x.id===h.id?final:x);
-        // Nach jedem erfolgreich verarbeiteten Pferd lokal sichern. So kann ein
-        // Fehler bei einem späteren Pferd niemals die komplette Pferdeliste blockieren.
         localStorage.setItem('horses',JSON.stringify(local));
       }else if(!cloudId){
-        const created=await insertHorseToCloud(h);
-        let photoPath=h.photo_path||'', photoUrl=h.photo||'';
+        // Truly local horse: create it in the cloud and persist the returned cloud id.
         try{
-          const photo=await syncHorsePhoto(h,created.cloudId);
-          photoPath=photo.path||photoPath;
-          photoUrl=photo.url||photoUrl;
-        }catch(photoError){
-          console.warn('Foto-Sync für neues Pferd fehlgeschlagen; neues Pferd wird trotzdem gespeichert',photoError);
-        }
-        local=local.map(x=>x.id===h.id?{...h,cloud_id:created.cloudId,photo_path:photoPath,photo:photoUrl,photo_dirty:false,photo_removed:false,cloud_synced_at:created.updatedAt,cloud_dirty:false}:x);
-        // Neuanlage sofort persistieren, unabhängig davon, ob das Foto geklappt hat.
-        localStorage.setItem('horses',JSON.stringify(local));
-      }else if(cloudId&&!row){
-        // Cloud deletion. Only re-create it if there was a real local change
-        // after the last confirmed sync; otherwise the cloud deletion wins.
-        const localChangeSinceSync=new Date(h.local_updated_at||0).getTime()>new Date(h.cloud_synced_at||0).getTime();
-        if(localChangeSinceSync){
-          const at=await updateHorseInCloud({...h,cloud_id:cloudId});
-          local=local.map(x=>x.id===h.id?{...h,cloud_synced_at:at,cloud_dirty:false}:x);
-        }else{
-          local=local.filter(x=>x.id!==h.id);
+          const created=await insertHorseToCloud(h);
+          let photoPath=h.photo_path||'', photoUrl=h.photo||'';
+          try{
+            const photo=await syncHorsePhoto(h,created.cloudId);
+            photoPath=photo.path||photoPath;
+            photoUrl=photo.url||photoUrl;
+          }catch(photoError){
+            console.warn('Foto-Sync für neues Pferd fehlgeschlagen; Pferd bleibt gespeichert',photoError);
+          }
+          local=local.map(x=>x.id===h.id?{...h,cloud_id:created.cloudId,photo_path:photoPath,photo:photoUrl,photo_dirty:false,photo_removed:false,cloud_synced_at:created.updatedAt,cloud_dirty:false}:x);
+          localStorage.setItem('horses',JSON.stringify(local));
+        }catch(createError){
+          console.error('Neues Pferd konnte nicht zur Cloud synchronisiert werden',createError);
+          // Keep the local horse. It can be retried on the next sync.
         }
       }
     }
 
-    // Add cloud-only horses.
-    const known=new Set(local.map(h=>h.cloud_id).filter(Boolean));
+    // 2) Add every cloud-only horse that is not already represented locally.
+    const knownCloudIds=new Set(local.map(h=>h.cloud_id).filter(Boolean));
     const deletionTombstones=getHorseDeletionTombstones();
     for(const row of cloudRows){
-      if(known.has(row.id))continue;
+      if(knownCloudIds.has(row.id))continue;
       if(deletionTombstones[row.id]){
-        try{await deleteHorseFromCloud(row.id)}catch(e){}
+        try{await deleteHorseFromCloud(row.id)}catch(e){console.warn('Tombstone-Löschung fehlgeschlagen',e)}
         continue;
       }
       const d=row.details&&typeof row.details==='object'?row.details:{};
       const byLocalId=d._local_id?local.find(h=>h.id===d._local_id):null;
-      if(byLocalId){if(!byLocalId.cloud_id)local=local.map(h=>h.id===byLocalId.id?{...h,cloud_id:row.id,cloud_synced_at:row.updated_at||'',cloud_dirty:false}:h);continue;}
+      if(byLocalId){
+        local=local.map(h=>h.id===byLocalId.id?{...h,cloud_id:row.id,cloud_synced_at:row.updated_at||'',local_updated_at:row.updated_at||'',cloud_dirty:false}:h);
+        knownCloudIds.add(row.id);
+        continue;
+      }
       const newHorse=mergeCloudHorse(null,row);
-      newHorse.local_updated_at=row.updated_at||'';newHorse.cloud_synced_at=row.updated_at||'';newHorse.cloud_dirty=false;local.push(newHorse);
-      // Cloud-only Pferd sofort lokal sichern; Foto-Sync ist davon unabhängig.
+      newHorse.local_updated_at=row.updated_at||'';
+      newHorse.cloud_synced_at=row.updated_at||'';
+      newHorse.cloud_dirty=false;
+      local.push(newHorse);
+      knownCloudIds.add(row.id);
       localStorage.setItem('horses',JSON.stringify(local));
     }
 
-    // Reconcile only edits that were made while the full sync was running.
-    // A cloud deletion/change is never overwritten by an older local snapshot.
-    const latestLocal=getHorses();
-    for(const latest of latestLocal){
-      const current=local.find(x=>x.id===latest.id);
-      if(!current){
-        const wasCloudLinked=!!latest.cloud_id;
-        const localChangeSinceSync=new Date(latest.local_updated_at||0).getTime()>new Date(latest.cloud_synced_at||0).getTime();
-        if(!wasCloudLinked||localChangeSinceSync)local.push(latest);
-        continue;
-      }
-      const latestTs=new Date(latest.local_updated_at||0).getTime();
-      const currentTs=new Date(current.local_updated_at||0).getTime();
-      const latestSyncedTs=new Date(latest.cloud_synced_at||0).getTime();
-      if(latestTs>currentTs && latestTs>latestSyncedTs) {
-        const i=local.findIndex(x=>x.id===latest.id); if(i>=0)local[i]=latest;
-      }
-    }
-
+    // Final authoritative write. Do not merge an old pre-sync snapshot back in.
     localStorage.setItem('horses',JSON.stringify(local));
-    renderHorses();renderHorseProfilesOnly();
+    renderHorses();
+    renderHorseProfilesOnly();
     setCloudStatus(`☁️ ${local.length} Pferd${local.length===1?'':'e'} und ihre Fotos synchronisiert.`);
   }catch(e){
     console.error('Cloud-Sync Fehler',e);
     setCloudStatus(`⚠️ Cloud-Synchronisierung fehlgeschlagen: ${cloudErrorText(e)}. HorseHub arbeitet weiter mit deinen lokalen Daten.`,true);
-  }finally{horseHubCloudSyncing=false;}
+  }finally{
+    horseHubCloudSyncing=false;
+  }
 }
 
 function getHorseDeletionTombstones(){try{return JSON.parse(localStorage.getItem('horse_delete_tombstones')||'{}')||{}}catch(e){return {}}}
@@ -716,7 +737,7 @@ let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;const b=$('installButton');if(b)b.classList.remove('hidden');const st=$('installStatus');if(st)st.textContent='Installation verfügbar';});
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;const b=$('installButton');if(b)b.classList.add('hidden');const st=$('installStatus');if(st)st.textContent='✅ HorseHub ist installiert';});
 async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Installationsdialog erscheint, öffne das Browser-Menü ⋮ und wähle „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null}
-async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.16',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
+async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=10.17',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleDailyReset();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
 </script>
