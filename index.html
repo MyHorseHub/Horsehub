@@ -175,7 +175,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.15.0</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.16.0</div>
 </div>
 
 </section>
@@ -206,7 +206,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.15.0 – Unified Sync + Roundtrip Diagnostics */
+/* HorseHub 1.16.0 – Horse Data Merge */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -233,7 +233,7 @@ function cloudHorseDetails(h){
   delete copy.local_updated_at;
   delete copy._cloud_base_details;
   copy._local_id=localId;
-  copy._schema_version=4;
+  copy._schema_version=5;
   return copy;
 }
 function mergeCloudHorse(local,row){
@@ -302,6 +302,74 @@ async function insertHorseToCloud(h){
   if(error)throw error;
   return {cloudId,updatedAt:data?.updated_at||now,details};
 }
+function mergeArrayItemThreeWay(localItem,cloudItem,baseItem){
+  if(localItem==null&&cloudItem==null)return null;
+  if(localItem==null){
+    // Local deletion + unchanged cloud item => the deletion is real.
+    // Local deletion + cloud modification => preserve the cloud change to
+    // avoid silently destroying another device's newer data.
+    if(baseItem!=null)return valuesEqual(cloudItem,baseItem)?null:cloneHorseDetails(cloudItem);
+    return cloneHorseDetails(cloudItem);
+  }
+  if(cloudItem==null){
+    // Cloud deletion + unchanged local item => accept the cloud deletion.
+    // Cloud deletion + local modification => preserve the local change.
+    if(baseItem!=null)return valuesEqual(localItem,baseItem)?null:cloneHorseDetails(localItem);
+    return cloneHorseDetails(localItem);
+  }
+  if(baseItem==null){
+    // Legacy records without a cloud base: preserve both sides. For the rare
+    // same-ID conflict, merge individual properties instead of replacing one
+    // complete feeding entry with the other.
+    const out={...cloneHorseDetails(cloudItem)};
+    for(const key of new Set([...Object.keys(localItem),...Object.keys(cloudItem)])){
+      if(key==='id')continue;
+      if(localItem[key]!==undefined)out[key]=cloneHorseDetails(localItem[key]);
+    }
+    return out;
+  }
+  const localChanged=!valuesEqual(localItem,baseItem);
+  const cloudChanged=!valuesEqual(cloudItem,baseItem);
+  if(localChanged&&!cloudChanged)return cloneHorseDetails(localItem);
+  if(!localChanged&&cloudChanged)return cloneHorseDetails(cloudItem);
+  if(!localChanged&&!cloudChanged)return cloneHorseDetails(cloudItem);
+  // Both devices changed the same item. Merge field-by-field so independent
+  // edits survive; only an exact same-field conflict falls back to local.
+  const out={...cloneHorseDetails(cloudItem)};
+  const keys=new Set([...Object.keys(baseItem),...Object.keys(localItem),...Object.keys(cloudItem)]);
+  for(const key of keys){
+    if(key==='id')continue;
+    const b=baseItem[key], l=localItem[key], c=cloudItem[key];
+    const lc=!valuesEqual(l,b), cc=!valuesEqual(c,b);
+    if(lc&&!cc)out[key]=cloneHorseDetails(l);
+    else if(lc&&cc){
+      out[key]=valuesEqual(l,c)?cloneHorseDetails(c):cloneHorseDetails(l);
+    }
+  }
+  return out;
+}
+function mergeIdentifiedArrayThreeWay(localArr,cloudArr,baseArr){
+  const l=Array.isArray(localArr)?localArr:[];
+  const c=Array.isArray(cloudArr)?cloudArr:[];
+  const b=Array.isArray(baseArr)?baseArr:[];
+  const byId=arr=>new Map(arr.filter(x=>x&&x.id!=null).map(x=>[String(x.id),x]));
+  const lm=byId(l),cm=byId(c),bm=byId(b);
+  const order=[];
+  for(const item of c)if(item?.id!=null&&!order.includes(String(item.id)))order.push(String(item.id));
+  for(const item of l)if(item?.id!=null&&!order.includes(String(item.id)))order.push(String(item.id));
+  for(const item of b)if(item?.id!=null&&!order.includes(String(item.id)))order.push(String(item.id));
+  const out=[];
+  for(const id of order){
+    const item=mergeArrayItemThreeWay(lm.get(id),cm.get(id),bm.get(id));
+    if(item)out.push(item);
+  }
+  // Preserve legacy array values that have no stable id without allowing one
+  // device's complete legacy array to erase the other's identified entries.
+  const legacyL=l.filter(x=>!x?.id),legacyC=c.filter(x=>!x?.id);
+  for(const item of legacyC)if(!valuesEqual(item,legacyL.find(x=>valuesEqual(x,item))))out.push(cloneHorseDetails(item));
+  for(const item of legacyL)if(!valuesEqual(item,legacyC.find(x=>valuesEqual(x,item))))out.push(cloneHorseDetails(item));
+  return out;
+}
 function mergeLocalEditWithCloud(local,row){
   const cloud=cloneHorseDetails(row?.details&&typeof row.details==='object'?row.details:{});
   delete cloud.cloud_dirty; delete cloud.local_updated_at; delete cloud.cloud_synced_at; delete cloud._cloud_base_details;
@@ -311,11 +379,15 @@ function mergeLocalEditWithCloud(local,row){
   const keys=new Set([...Object.keys(cloud),...Object.keys(base),...Object.keys(current)]);
   for(const key of keys){
     if(key==='_local_id'||key==='_schema_version')continue;
+    if(key==='feedingTimes'){
+      merged[key]=mergeIdentifiedArrayThreeWay(current[key],cloud[key],base[key]);
+      continue;
+    }
     const localChanged=!valuesEqual(current[key],base[key]);
     if(localChanged)merged[key]=current[key];
   }
   merged._local_id=local._local_id||local.id;
-  merged._schema_version=4;
+  merged._schema_version=5;
   const baseName=typeof base.name==='string'?base.name:'';
   const localName=(local.name||'').trim();
   const cloudName=(row?.name||cloud.name||'Unbenanntes Pferd').trim();
