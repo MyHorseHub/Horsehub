@@ -175,7 +175,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.21.0</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.21.1</div>
 </div>
 
 </section>
@@ -206,7 +206,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.21.0 – Universal Local-Write Diagnostics + Stale Pull Guard V2 */
+/* HorseHub 1.21.1 – Targeted Current-Horse Pull Fix + Write Diagnostics */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -217,8 +217,8 @@ let horseHubCloudUser=null;
 let horseHubCloudSyncing=false;
 const horseHubCloudTimers=new Map();
 function setCloudStatus(text,isError=false){const el=$('accountCloudStatus');if(el){el.textContent=text;el.style.color=isError?'#a33':''}}
-const HORSEHUB_RUNTIME_BUILD='HH-1.21-DIAG-WRITE-TRACE';
-const HORSEHUB_SYNC_ENGINE='STALE_PULL_GUARD_V2+UNIVERSAL_WRITE_TRACE';
+const HORSEHUB_RUNTIME_BUILD='HH-1.21.1-FIX-CURRENT-HORSE-PULL';
+const HORSEHUB_SYNC_ENGINE='STALE_PULL_GUARD_V3+CURRENT_PULL_GUARD+UNIVERSAL_WRITE_TRACE';
 const HORSEHUB_LOCAL_WRITE_TRACE_KEY='horsehub_local_write_trace_v1';
 const HORSEHUB_LOCAL_WRITE_TRACE_MAX=500;
 const HORSEHUB_SYNC_DATA_KEYS=new Set(['horses','routines','todayTasks','dailyDone','dailyDoneMeta','todayTaskTombstones','horse_delete_tombstones']);
@@ -266,7 +266,7 @@ Storage.prototype.setItem=function(key,value){let before=null;try{before=horseHu
 Storage.prototype.removeItem=function(key){let before=null;try{before=horseHubNativeGetItem.call(this,key)}catch(e){} const result=horseHubNativeRemoveItem.call(this,key); if(this===localStorage)hhRecordLocalWrite('REMOVE',String(key),before,null); return result;};
 function clearLocalWriteTrace(){try{horseHubNativeRemoveItem.call(localStorage,HORSEHUB_LOCAL_WRITE_TRACE_KEY)}catch(e){} $('localWriteTraceStatus').textContent='🧹 Lokaler Schreibverlauf gelöscht.';$('localWriteTraceResults').innerHTML=''}
 function renderLocalWriteTrace(){let a=hhLocalWriteTraceRead();const key=$('localWriteTraceKey')?.value||'ALL';if(key!=='ALL')a=a.filter(x=>x.key===key);const rows=a.slice().reverse().slice(0,80);if(!rows.length){$('localWriteTraceResults').innerHTML='<div class="setting-note">Noch keine lokalen Schreibvorgänge aufgezeichnet.</div>';return;} $('localWriteTraceResults').innerHTML=rows.map(x=>{const changes=(x.diff?.horseChanges||[]).map(h=>`<div><b>${h.name||h.id}</b> · ${h.type} · ${(h.fields||[]).join(' · ')}</div>`).join('');const suspicious=(x.diff?.horseChanges||[]).some(h=>(h.fields||[]).some(f=>/:(?:[4-9]|[1-9]\d)→(?:[0-3])$/.test(f)));return `<details class="setting-note" style="margin-top:6px;border-left:4px solid ${suspicious?'#b33':'#aaa'}"><summary>${suspicious?'⚠️ ':''}${x.at} · ${x.op} · ${x.key} · ${x.scope}</summary><div style="margin-top:6px;font-size:12px"><b>Quelle:</b> ${String(x.source||'').replace(/</g,'&lt;')}<br><b>Größe:</b> ${x.before?.bytes||0} → ${x.after?.bytes||0} Bytes · <b>Anzahl:</b> ${x.before?.count??'-'} → ${x.after?.count??'-'}${changes?`<div style="margin-top:5px"><b>Änderungen:</b>${changes}</div>`:''}<div style="margin-top:5px"><b>Build:</b> ${x.build} · ${x.syncEngine}</div></div></details>`}).join('');$('localWriteTraceStatus').textContent=`${rows.length} Schreibvorgänge angezeigt · insgesamt ${a.length}`;}
-function exportLocalWriteTrace(){const a=hhLocalWriteTraceRead();const blob=new Blob([JSON.stringify(a,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const el=document.createElement('a');el.href=url;el.download='horsehub-local-write-trace-1.21.0.json';el.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function exportLocalWriteTrace(){const a=hhLocalWriteTraceRead();const blob=new Blob([JSON.stringify(a,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const el=document.createElement('a');el.href=url;el.download='horsehub-local-write-trace-1.21.1.json';el.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 
 function horseSyncTraceRead(){try{return JSON.parse(localStorage.getItem('horsehub_sync_trace')||'[]')||[]}catch(e){return []}}
 function horseSyncTrace(event,payload={}){try{const row={at:new Date().toISOString(),event,build:HORSEHUB_RUNTIME_BUILD,syncEngine:HORSEHUB_SYNC_ENGINE,...payload};const a=horseSyncTraceRead();a.push(row);while(a.length>160)a.shift();localStorage.setItem('horsehub_sync_trace',JSON.stringify(a));}catch(e){}}
@@ -613,6 +613,28 @@ async function syncCurrentHorseFromCloud(localId){
   const cloudContentChanged=cloudHorseDetailsDiffer(localHorse,data);
   const cloudTs=new Date(data.updated_at||0).getTime();
   const syncedTs=new Date(synced||0).getTime();
+  const localUpdatedTs=new Date(localHorse.local_updated_at||0).getTime();
+  const localDirty=hasUnsentLocalHorseChanges(localHorse);
+  // Targeted fix for the second pull path: syncCurrentHorseFromCloud() can
+  // receive an older Cloud snapshot while a local edit/upload is still in
+  // flight. That snapshot must never be written back over the current local
+  // horse, even when cloud_synced_at itself still points to the previous
+  // confirmed version.
+  const currentPullHasNewerLocalState=localDirty || localUpdatedTs>cloudTs;
+  if(cloudContentChanged && currentPullHasNewerLocalState){
+    horseSyncTrace('CURRENT_PULL_STALE_CLOUD_IGNORED',{
+      horseId:localId,
+      cloudId:data.id||'',
+      cloudUpdatedAt:data.updated_at||'',
+      cloudSyncedAt:synced,
+      localUpdatedAt:localHorse.local_updated_at||'',
+      localDirty,
+      localNewerThanCloud:localUpdatedTs>cloudTs,
+      localFeedingCount:Array.isArray(localHorse.feedingTimes)?localHorse.feedingTimes.length:0,
+      cloudFeedingCount:Array.isArray(data.details?.feedingTimes)?data.details.feedingTimes.length:0
+    });
+    return;
+  }
   // A content difference alone is NOT enough to make Cloud authoritative.
   // A pull response can be older than the version this device has just
   // confirmed (for example when an in-flight/stale read returns after an
