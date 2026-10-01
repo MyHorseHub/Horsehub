@@ -175,7 +175,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.19.0</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.20.0</div>
 </div>
 
 </section>
@@ -206,7 +206,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.19.0 – Horse Data Merge + Sync Deep Diagnostics */
+/* HorseHub 1.20.0 – Horse Data Merge + Stale Pull Guard V2 + Sync Deep Diagnostics */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -217,8 +217,10 @@ let horseHubCloudUser=null;
 let horseHubCloudSyncing=false;
 const horseHubCloudTimers=new Map();
 function setCloudStatus(text,isError=false){const el=$('accountCloudStatus');if(el){el.textContent=text;el.style.color=isError?'#a33':''}}
+const HORSEHUB_RUNTIME_BUILD='HH-1.20-DIAG-FRESH';
+const HORSEHUB_SYNC_ENGINE='STALE_PULL_GUARD_V2';
 function horseSyncTraceRead(){try{return JSON.parse(localStorage.getItem('horsehub_sync_trace')||'[]')||[]}catch(e){return []}}
-function horseSyncTrace(event,payload={}){try{const row={at:new Date().toISOString(),event,...payload};const a=horseSyncTraceRead();a.push(row);while(a.length>160)a.shift();localStorage.setItem('horsehub_sync_trace',JSON.stringify(a));}catch(e){}}
+function horseSyncTrace(event,payload={}){try{const row={at:new Date().toISOString(),event,build:HORSEHUB_RUNTIME_BUILD,syncEngine:HORSEHUB_SYNC_ENGINE,...payload};const a=horseSyncTraceRead();a.push(row);while(a.length>160)a.shift();localStorage.setItem('horsehub_sync_trace',JSON.stringify(a));}catch(e){}}
 function horseSyncTraceFor(id){return horseSyncTraceRead().filter(x=>!id||x.horseId===id).slice(-80)}
 function clearHorseSyncTrace(){localStorage.removeItem('horsehub_sync_trace');$('syncDeepStatus').textContent='🧹 Lokaler Sync-Verlauf gelöscht.';$('syncDeepResults').innerHTML=''}
 function cloneHorseDetails(v){try{return JSON.parse(JSON.stringify(v||{}))}catch(e){return {}}}
@@ -652,18 +654,26 @@ async function syncHorsesWithCloud(){
       const cloudContentChanged=cloudHorseDetailsDiffer(local,row);
       const rowTs=new Date(row.updated_at||0).getTime();
       const localSyncedTs=new Date(local.cloud_synced_at||0).getTime();
+      const staleCloud=!!local.cloud_synced_at && rowTs<localSyncedTs;
       const cloudChanged=!local.cloud_synced_at
         ? true
-        : (rowTs>localSyncedTs || (rowTs===localSyncedTs && cloudContentChanged));
-      if(localDirty){
+        : (!staleCloud && (rowTs>localSyncedTs || (rowTs===localSyncedTs && cloudContentChanged)));
+      if(staleCloud){
+        horseSyncTrace('LIST_PULL_STALE_CLOUD_IGNORED',{horseId:local.id,cloudId:row.id,cloudUpdatedAt:row.updated_at||'',cloudSyncedAt:local.cloud_synced_at||'',localUpdatedAt:local.local_updated_at||'',localDirty,cloudContentChanged,localFeedingCount:Array.isArray(local.feedingTimes)?local.feedingTimes.length:0,cloudFeedingCount:Array.isArray(row.details?.feedingTimes)?row.details.feedingTimes.length:0});
+        // Never regress the confirmed cloud timestamp or local content from
+        // an older list-pull response. This is the guard that was missing in
+        // the list-wide sync path.
+        finalList.push({...local,cloud_id:row.id});
+      }else if(localDirty){
         // Keep the local edit intact. The per-horse queue will perform a
         // three-way merge against the latest cloud row; this list sync never
         // uploads a stale full snapshot.
         finalList.push({...local,cloud_id:row.id});
       }else if(cloudChanged){
+        horseSyncTrace('LIST_PULL_CLOUD_WINS',{horseId:local.id,cloudId:row.id,cloudUpdatedAt:row.updated_at||'',cloudSyncedAt:local.cloud_synced_at||'',localFeedingCount:Array.isArray(local.feedingTimes)?local.feedingTimes.length:0,cloudFeedingCount:Array.isArray(row.details?.feedingTimes)?row.details.feedingTimes.length:0});
         finalList.push(mergeCloudHorse(local,row));
       }else{
-        finalList.push({...local,cloud_id:row.id,cloud_synced_at:row.updated_at||local.cloud_synced_at||'',cloud_dirty:false,_cloud_base_details:local._cloud_base_details||cloudHorseDetails(local)});
+        finalList.push({...local,cloud_id:row.id,cloud_synced_at:local.cloud_synced_at||row.updated_at||'',cloud_dirty:false,_cloud_base_details:local._cloud_base_details||cloudHorseDetails(local)});
       }
     }
     // Local-only horses are kept. New ones are uploaded only by their own
@@ -1153,7 +1163,7 @@ let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;const b=$('installButton');if(b)b.classList.remove('hidden');const st=$('installStatus');if(st)st.textContent='Installation verfügbar';});
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;const b=$('installButton');if(b)b.classList.add('hidden');const st=$('installStatus');if(st)st.textContent='✅ HorseHub ist installiert';});
 async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Installationsdialog erscheint, öffne das Browser-Menü ⋮ und wähle „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null}
-async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=15.0',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
+async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=20.0',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleDailyReset();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
 
@@ -1186,7 +1196,7 @@ async function runSyncDiagnostics(){
   if(!horseHubCloudUser){status.textContent='⚠️ Nicht angemeldet – Cloud-Diagnose nicht möglich.';out.innerHTML='';return}
   status.textContent='⏳ Lese lokalen und Cloud-Stand …';out.innerHTML='';
   const report=[];
-  try{
+  try{report.push({section:'Runtime',issues:0,rows:[{name:'Build',state:'OK',detail:HORSEHUB_RUNTIME_BUILD},{name:'Sync-Engine',state:'OK',detail:HORSEHUB_SYNC_ENGINE}]});
     const localH=getHorses();
     const {data:cloudH,error:eh}=await supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id).order('created_at',{ascending:true});
     if(eh)throw eh;
