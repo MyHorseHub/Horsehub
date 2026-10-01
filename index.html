@@ -168,13 +168,14 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 </div>
 <div class="card"><h3>📝 Stall-Routinen</h3><p class="muted">Routinen werden automatisch in die Tagesliste übernommen. Bei „täglich“ erscheint die Aufgabe jeden Tag.</p><div id="routinesList"></div><button class="smallbtn" onclick="addRoutine()">+ Routine hinzufügen</button></div>
 <div class="card"><h3>🖼️ Startseiten-Titelbild</h3><p class="muted">Wähle ein eigenes Foto für die „Willkommen bei HorseHub!“-Kachel. Nach der Auswahl kannst du es wie ein Pferdefoto verschieben und zoomen.</p><div class="upload-row"><label class="upload-btn">📷 Kamera<input type="file" accept="image/*" capture="environment" onchange="setHomeHeroImage(this)"></label><label class="upload-btn">🖼️ Galerie<input type="file" accept="image/*" onchange="setHomeHeroImage(this)"></label><button class="secondary" onclick="editHomeHeroImage()">✏️ Bildausschnitt bearbeiten</button><button class="secondary" onclick="removeHomeHeroImage()">Bild entfernen</button></div><div id="heroPhotoEditor" class="hidden"></div></div>
+<div class="card" id="syncDiagnosticsCard"><h3>🔎 Sync-Diagnose</h3><p class="muted">Liest den lokalen und den aktuellen Cloud-Stand aus und zeigt Abweichungen. Die Diagnose verändert keine Daten.</p><div class="row" style="gap:8px;flex-wrap:wrap"><button class="secondary" onclick="runSyncDiagnostics()">🔍 Diagnose starten</button><button class="secondary" onclick="copySyncDiagnosticReport()">📋 Bericht kopieren</button></div><div id="syncDiagnosticsStatus" class="muted" style="margin-top:10px"></div><div id="syncDiagnosticsResults" style="margin-top:10px"></div></div>
 <div class="card"><h3>🐴 Pferde auf der Startseite</h3><p class="muted">Lege fest, welche Pferde auf deiner Startseite angezeigt werden.</p><div id="horseVisibilitySettings"></div></div>
 <div class="card"><h3>💾 Daten</h3><p class="muted">Pferdedaten werden mit deinem HorseHub-Konto synchronisiert. Pferdefotos liegen geschützt in Supabase Storage und werden beim Ändern am selben Speicherplatz ersetzt.</p><button class="secondary" onclick="exportData()">Daten exportieren</button></div>
 
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.13.1</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.14.0</div>
 </div>
 
 </section>
@@ -1021,6 +1022,90 @@ async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Ins
 async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=11.0',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleDailyReset();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
+
+let horseHubLastDiagnosticReport='';
+function diagEsc(v){return escapeHtml(String(v??''));}
+function diagTime(v){if(!v)return '–';const d=new Date(v);return Number.isNaN(d.getTime())?String(v):d.toLocaleString('de-DE');}
+function diagEq(a,b){try{return JSON.stringify(a)===JSON.stringify(b)}catch(e){return String(a)===String(b)}}
+function diagDetailsDiff(local,cloudDetails){
+  const l=local&&typeof local==='object'?local:{}; const c=cloudDetails&&typeof cloudDetails==='object'?cloudDetails:{};
+  const keys=[...new Set([...Object.keys(l),...Object.keys(c)])].filter(k=>!['_local_id','_schema_version'].includes(k));
+  return keys.filter(k=>!diagEq(l[k],c[k]));
+}
+function diagHorseSummary(local,row){
+  const details=cloudHorseDetails(local);
+  const cloudDetails=row?.details&&typeof row.details==='object'?row.details:{};
+  const diff=diagDetailsDiff(details,cloudDetails);
+  const localTs=new Date(local?.local_updated_at||0).getTime();
+  const syncedTs=new Date(local?.cloud_synced_at||0).getTime();
+  const cloudTs=new Date(row?.updated_at||0).getTime();
+  let state='OK';
+  if(diff.length)state=cloudTs>syncedTs?'CLOUD_NEUER_ABER_DETAILS_ABWEICHEND':'DETAILS_ABWEICHEND';
+  else if(local?.cloud_dirty||localTs>syncedTs)state='LOKAL_OFFEN';
+  else if(cloudTs>syncedTs)state='CLOUD_NEUER';
+  return {state,diff,localUpdated:local?.local_updated_at||'',cloudSynced:local?.cloud_synced_at||'',cloudUpdated:row?.updated_at||'',photoLocal:local?.photo||'',photoCloud:row?.photo_url||''};
+}
+async function runSyncDiagnostics(){
+  const status=$('syncDiagnosticsStatus'),out=$('syncDiagnosticsResults');
+  if(!horseHubCloudUser){status.textContent='⚠️ Nicht angemeldet – Cloud-Diagnose nicht möglich.';out.innerHTML='';return}
+  status.textContent='⏳ Lese lokalen und Cloud-Stand …';out.innerHTML='';
+  const report=[];
+  try{
+    const localH=getHorses();
+    const {data:cloudH,error:eh}=await supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id).order('created_at',{ascending:true});
+    if(eh)throw eh;
+    const ch=Array.isArray(cloudH)?cloudH:[];const byCloud=new Map(ch.map(x=>[x.id,x]));
+    const horseRows=[];let horseIssues=0;
+    for(const h of localH){
+      const r=h.cloud_id?byCloud.get(h.cloud_id):null;
+      if(!r){horseRows.push({name:h.name||h.id,state:h.cloud_id?'NICHT_IN_CLOUD':'NUR_LOKAL',detail:h.cloud_id?'Cloud-Datensatz fehlt':'Noch keine Cloud-ID'});horseIssues++;continue}
+      const s=diagHorseSummary(h,r);horseRows.push({name:h.name||r.name||h.id,state:s.state,detail:s.diff.length?`Abweichende Felder: ${s.diff.join(', ')}`:'keine Detail-Abweichung',photo:(s.photoLocal!==s.photoCloud)?'Foto abweichend':'Foto OK',times:`lokal ${diagTime(s.localUpdated)} · Sync ${diagTime(s.cloudSynced)} · Cloud ${diagTime(s.cloudUpdated)}`});if(s.state!=='OK')horseIssues++;
+    }
+    for(const r of ch){if(!localH.some(h=>h.cloud_id===r.id)){horseRows.push({name:r.name||r.id,state:'NUR_CLOUD',detail:'Cloud-Pferd lokal nicht gefunden'});horseIssues++;}}
+    report.push({section:'Pferde',issues:horseIssues,rows:horseRows});
+
+    const localR=getRoutines();
+    const {data:cloudR,error:er}=await supabaseClient.from(ROUTINE_SYNC_TABLE).select('id,horse_id,title,frequency,time,weekday,enabled,updated_at,deleted_at').eq('owner_id',horseHubCloudUser.id);
+    if(er)throw er;
+    const cr=Array.isArray(cloudR)?cloudR:[], rmap=new Map(cr.map(x=>[x.id,x])), routineRows=[];let routineIssues=0;
+    for(const r of localR){const c=rmap.get(r.id);if(!c){routineRows.push({name:r.title||r.id,state:r.deleted_at?'LOKAL_GELOESCHT':'NUR_LOKAL',detail:r.deleted_at?'Tombstone noch nicht in Cloud bestätigt':'Cloud-Datensatz fehlt'});routineIssues++;continue}const lu=new Date(r.local_updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();let st='OK';if(r.cloud_dirty&&lu>cu)st='LOKAL_OFFEN';else if(cu>lu)st='CLOUD_NEUER';else if(!!r.deleted_at!==!!c.deleted_at)st='LOESCHSTATUS_ABWEICHEND';if(st!=='OK')routineIssues++;routineRows.push({name:r.title||r.id,state:st,detail:`lokal ${diagTime(r.local_updated_at)} · Cloud ${diagTime(c.updated_at)}`});}
+    for(const c of cr)if(!localR.some(r=>r.id===c.id)&&!c.deleted_at){routineRows.push({name:c.title||c.id,state:'NUR_CLOUD',detail:'Cloud-Routine lokal nicht gefunden'});routineIssues++;}
+    report.push({section:'Routinen',issues:routineIssues,rows:routineRows});
+
+    const localT=JSON.parse(localStorage.getItem('todayTasks')||'[]');
+    const {data:cloudT,error:et}=await supabaseClient.from(DAILY_TASK_TABLE).select('id,title,horse_id,task_date,done,updated_at,deleted_at').eq('owner_id',horseHubCloudUser.id);
+    if(et)throw et;
+    const ct=Array.isArray(cloudT)?cloudT:[], tmap=new Map(ct.map(x=>[x.id,x])), taskRows=[];let taskIssues=0;
+    for(const t of localT){const c=tmap.get(t.id);if(!c){taskRows.push({name:t.title||t.id,state:t.deleted_at?'LOKAL_GELOESCHT':'NUR_LOKAL',detail:'Cloud-Datensatz fehlt'});taskIssues++;continue}const lu=new Date(t.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();let st='OK';if(t.cloud_dirty&&lu>cu)st='LOKAL_OFFEN';else if(cu>lu)st='CLOUD_NEUER';else if(!!t.deleted_at!==!!c.deleted_at)st='LOESCHSTATUS_ABWEICHEND';else if(!!t.done!==!!c.done)st='ABHAKEN_ABWEICHEND';if(st!=='OK')taskIssues++;taskRows.push({name:t.title||t.id,state:st,detail:`erledigt lokal ${!!t.done} · Cloud ${!!c.done} · lokal ${diagTime(t.updated_at)} · Cloud ${diagTime(c.updated_at)}`});}
+    for(const c of ct)if(!localT.some(t=>t.id===c.id)&&!c.deleted_at){taskRows.push({name:c.title||c.id,state:'NUR_CLOUD',detail:'Cloud-Aufgabe lokal nicht gefunden'});taskIssues++;}
+    report.push({section:'Tägliche Aufgaben',issues:taskIssues,rows:taskRows});
+
+    const localDone=getDailyDone(), meta=dailyDoneMeta();
+    const {data:cloudC,error:ec}=await supabaseClient.from(TASK_COMPLETION_TABLE).select('task_key,task_date,done,updated_at').eq('owner_id',horseHubCloudUser.id).gte('task_date',new Date(Date.now()-31*86400000).toISOString().slice(0,10));
+    if(ec)throw ec;
+    const cc=Array.isArray(cloudC)?cloudC:[], cmap=new Map(cc.map(x=>[x.task_key,x])), keys=[...new Set([...Object.keys(localDone),...cc.map(x=>x.task_key)])], doneRows=[];let doneIssues=0;
+    for(const key of keys){const c=cmap.get(key),m=meta[key];if(!c){if(m) {doneRows.push({name:key,state:'NUR_LOKAL',detail:`lokal ${!!localDone[key]} · ${diagTime(m.updated_at)}`});doneIssues++;}continue}if(!m){doneRows.push({name:key,state:'NUR_CLOUD',detail:`Cloud ${!!c.done} · ${diagTime(c.updated_at)}`});doneIssues++;continue}const lu=new Date(m.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();let st='OK';if(!!localDone[key]!==!!c.done)st='ABHAKEN_ABWEICHEND';else if(cu>lu)st='CLOUD_NEUER';else if(lu>cu)st='LOKAL_OFFEN';if(st!=='OK')doneIssues++;doneRows.push({name:key,state:st,detail:`lokal ${!!localDone[key]} · Cloud ${!!c.done} · lokal ${diagTime(m.updated_at)} · Cloud ${diagTime(c.updated_at)}`});}
+    report.push({section:'Erledigungsstatus',issues:doneIssues,rows:doneRows});
+
+    const localKeys=['horses','routines','todayTasks','dailyDone','dailyDoneMeta','todayTaskTombstones','horse_delete_tombstones'];
+    const storageRows=localKeys.map(k=>({name:k,state:localStorage.getItem(k)!=null?'VORHANDEN':'FEHLT',detail:localStorage.getItem(k)?.length?`${localStorage.getItem(k).length} Zeichen`:'–'}));
+    report.push({section:'Lokaler Speicher',issues:0,rows:storageRows});
+    const localOnlyKeys=['notes','calendarEvents','contacts','plans','ownerProfile','homeHeroImage'];
+    report.push({section:'Lokal-only Bereiche (nicht Cloud-synchronisiert)',issues:0,rows:localOnlyKeys.map(k=>({name:k,state:'LOCAL_ONLY',detail:localStorage.getItem(k)!=null?'lokal vorhanden':'nicht vorhanden'}))});
+
+    const totalIssues=report.reduce((n,s)=>n+s.issues,0);
+    const html=report.map(sec=>`<div class="card" style="margin-top:8px"><div class="row"><h4 style="margin:0">${diagEsc(sec.section)}</h4><span class="badge ${sec.issues?'danger':'ok'}">${sec.issues?sec.issues+' Abweichung(en)':'OK'}</span></div>${sec.rows.length?`<div style="overflow:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="text-align:left;padding:5px">Objekt</th><th style="text-align:left;padding:5px">Status</th><th style="text-align:left;padding:5px">Details</th></tr></thead><tbody>${sec.rows.map(x=>`<tr><td style="padding:5px;border-top:1px solid #ddd">${diagEsc(x.name)}</td><td style="padding:5px;border-top:1px solid #ddd"><b>${diagEsc(x.state)}</b></td><td style="padding:5px;border-top:1px solid #ddd">${diagEsc(x.detail)}${x.photo?'<br>'+diagEsc(x.photo):''}${x.times?'<br>'+diagEsc(x.times):''}</td></tr>`).join('')}</tbody></table></div>`:'<div class="muted">Keine Einträge.</div>'}</div>`).join('');
+    out.innerHTML=`<div class="setting-note"><b>${totalIssues?'⚠️':'✅'} Diagnose abgeschlossen</b><br><span class="muted">${totalIssues?totalIssues+' mögliche Abweichung(en) gefunden.':'Kein Unterschied in den geprüften Bereichen gefunden.'}</span></div>${html}`;
+    const stamp=new Date().toISOString();
+    horseHubLastDiagnosticReport={generated_at:stamp,user_id:horseHubCloudUser.id,report};
+    status.textContent=`Diagnose abgeschlossen: ${new Date(stamp).toLocaleString('de-DE')}`;
+  }catch(e){console.error('Sync-Diagnose',e);status.textContent=`⚠️ Diagnose fehlgeschlagen: ${cloudErrorText(e)}`;out.innerHTML='<div class="setting-note">Die Diagnose hat keine Daten verändert. Prüfe die Fehlermeldung oben.</div>';horseHubLastDiagnosticReport={error:String(e?.message||e)};}
+}
+async function copySyncDiagnosticReport(){
+  if(!horseHubLastDiagnosticReport){await runSyncDiagnostics();}
+  const text=JSON.stringify(horseHubLastDiagnosticReport,null,2);
+  try{await navigator.clipboard.writeText(text);$('syncDiagnosticsStatus').textContent='📋 Diagnosebericht in die Zwischenablage kopiert.';}catch(e){$('syncDiagnosticsStatus').textContent='ℹ️ Kopieren nicht möglich. Diagnose ist oben sichtbar.';}
+}
 </script>
 </div>
 </body>
