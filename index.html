@@ -29,9 +29,22 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b0e10;border:1px sol
   </section>
 
   <section class="card">
-    <div class="row"><span id="netDot" class="dot"></span><b>Netzwerk:</b><span id="netText">prüfe …</span><span class="grow"></span><span class="pill" id="build">Legend Lab 1.0</span></div>
+    <div class="row"><span id="netDot" class="dot"></span><b>Netzwerk:</b><span id="netText">prüfe …</span><span class="grow"></span><span class="pill" id="build">Legend Lab 1.1</span></div>
     <div class="row" style="margin-top:10px"><span id="syncDot" class="dot"></span><b>Legend-State:</b><span id="syncText">initialisiere …</span></div>
     <div id="authBox" class="statusline">Authentifizierung wird geprüft …</div>
+    <div id="loginBox" style="margin-top:12px" class="hidden">
+      <label for="loginEmail">Supabase-E-Mail</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="deine E-Mail-Adresse">
+      <label for="loginPassword">Supabase-Passwort</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Passwort">
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="loginBtn">🔐 Anmelden</button>
+      </div>
+      <div class="small" style="margin-top:10px">Nutze hier dieselben Supabase-Zugangsdaten wie bei HorseHub. Die Zugangsdaten werden nur an Supabase übermittelt und nicht von diesem Test gespeichert.</div>
+    </div>
+    <div id="logoutRow" class="row hidden" style="margin-top:12px">
+      <button id="logoutBtn">Abmelden</button>
+    </div>
   </section>
 
   <section class="card">
@@ -47,7 +60,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b0e10;border:1px sol
       <button id="refreshBtn">↻ Cloud/Local neu laden</button>
       <button class="danger" id="clearBtn">Lokalen Test-Cache löschen</button>
     </div>
-    <div class="small" style="margin-top:10px">Normaler Testablauf: auf Gerät A anlegen → prüfen → auf Gerät B öffnen → prüfen → auf B ändern/löschen → A prüfen.</div>
+    <div class="small" style="margin-top:10px">Testablauf: auf beiden Geräten mit demselben Supabase-Konto anmelden → auf Gerät A anlegen → Gerät B öffnen → prüfen → auf B ändern/löschen → A prüfen.</div>
   </section>
 
   <section class="card">
@@ -93,7 +106,7 @@ import { ObservablePersistLocalStorage } from 'https://esm.sh/@legendapp/state@3
 const SUPABASE_URL = 'https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const TABLE = 'horsehub_legend_lab_feedings';
-const BUILD = 'HH-LEGEND-LAB-1.0';
+const BUILD = 'HH-LEGEND-LAB-1.1-LOGIN';
 
 const $ = id => document.getElementById(id);
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
@@ -103,6 +116,8 @@ let state$ = null;
 let realtimeChannel = null;
 let lastCreatedId = null;
 let logLines = [];
+let initializedForUserId = null;
+let initializing = false;
 
 function now(){ return new Date().toISOString(); }
 function log(event, data=''){
@@ -156,14 +171,33 @@ $('items').addEventListener('click', async e=>{
   }
 });
 
-async function init(){
-  log('BUILD',BUILD); log('INIT_START',{table:TABLE});
-  const {data:{session},error:authErr}=await supabase.auth.getSession();
-  if(authErr){ showError('AUTH_SESSION', authErr); return; }
-  user=session?.user||null;
-  $('authBox').textContent=user ? `Angemeldet: ${user.email} · user.id=${user.id}` : 'Nicht angemeldet. Bitte in der bestehenden HorseHub-Supabase-Session anmelden.';
-  if(!user){ $('syncDot').className='dot warn'; $('syncText').textContent='warte auf Login'; return; }
+async function destroyReplication(){
+  try{ realtimeChannel?.unsubscribe?.(); }catch{}
+  realtimeChannel=null;
+  try{ await feedings$?.[Symbol.for('legend-state-sync-unsubscribe')]?.(); }catch{}
+  feedings$=null; state$=null; initializedForUserId=null;
+}
+
+function showLogin(show){ $('loginBox').classList.toggle('hidden', !show); $('logoutRow').classList.toggle('hidden', show); }
+
+async function initForSession(session){
+  if(initializing) return;
+  initializing=true;
   try{
+    await destroyReplication();
+    user=session?.user||null;
+    if(!user){
+      $('authBox').textContent='Nicht angemeldet. Bitte unten mit deinem bestehenden HorseHub-Supabase-Konto anmelden.';
+      showLogin(true);
+      $('syncDot').className='dot warn'; $('syncText').textContent='warte auf Login';
+      $('cloudAll').textContent='–'; $('cloudCount').textContent='–';
+      return;
+    }
+    showLogin(false);
+    $('authBox').textContent=`Angemeldet: ${user.email} · user.id=${user.id}`;
+    log('AUTH_SESSION',{userId:user.id,email:user.email});
+
+    log('INIT_START',{table:TABLE,userId:user.id});
     configureSyncedSupabase({ generateId:()=>crypto.randomUUID() });
     log('LEGEND_CONFIG_OK');
 
@@ -182,25 +216,24 @@ async function init(){
       retry:{ infinite:true },
       debounceSet:250,
     }));
+    initializedForUserId=uid;
     log('LEGEND_REPLICATION_CREATED');
     state$=syncState(feedings$);
     feedings$.get();
     log('LEGEND_GET_CALLED');
-    $('syncDot').className='dot warn'; $('syncText').textContent='aktiv / synchronisiert';
+    $('syncDot').className='dot warn'; $('syncText').textContent='Sync wird gestartet …';
 
     try{
       const ready = await Promise.race([when(state$.isLoaded),new Promise(r=>setTimeout(()=>r(false),12000))]);
       log('LEGEND_INITIAL_STATE',{isLoaded:state$.isLoaded.get(),isPersistLoaded:state$.isPersistLoaded?.get?.(),isSyncEnabled:state$.isSyncEnabled?.get?.(),ready});
     }catch(e){showError('LEGEND_INITIAL_WAIT',e)}
 
-    // Watch sync status changes
     state$.onChange?.(({value})=>{
-      const s=value||{}; log('SYNC_STATE',{isLoaded:s.isLoaded,isPersistLoaded:s.isPersistLoaded,isSyncEnabled:s.isSyncEnabled,syncCount:s.syncCount,lastSync:s.lastSync,error:s.error?.message||null});
-      if(s.error){ $('syncDot').className='dot bad'; $('syncText').textContent='Fehler'; }
-      else if(s.isLoaded){ $('syncDot').className='dot ok'; $('syncText').textContent='aktiv'; }
+      const sv=value||{}; log('SYNC_STATE',{isLoaded:sv.isLoaded,isPersistLoaded:sv.isPersistLoaded,isSyncEnabled:sv.isSyncEnabled,syncCount:sv.syncCount,lastSync:sv.lastSync,error:sv.error?.message||null});
+      if(sv.error){ $('syncDot').className='dot bad'; $('syncText').textContent='Fehler'; }
+      else if(sv.isLoaded){ $('syncDot').className='dot ok'; $('syncText').textContent='aktiv'; }
     });
 
-    // Manual realtime diagnostics using Supabase Realtime, so events are visible even if the sync state UI is subtle.
     realtimeChannel = supabase.channel('legend-lab-'+uid).on('postgres_changes',{event:'*',schema:'public',table:TABLE,filter:`owner_id=eq.${uid}`},payload=>{
       log('REALTIME_EVENT',{event:payload.eventType,id:payload.new?.id||payload.old?.id,label:payload.new?.label||payload.old?.label});
       updateCounts();
@@ -210,8 +243,47 @@ async function init(){
     renderRows();
   }catch(e){
     showError('LEGEND_INIT',e); $('syncText').textContent='Startfehler';
+  }finally{
+    initializing=false;
   }
 }
+
+$('logoutBtn').onclick=async()=>{
+  $('logoutBtn').disabled=true;
+  log('LOGOUT_START');
+  const {error}=await supabase.auth.signOut();
+  if(error) showError('LOGOUT',error); else log('LOGOUT_SUCCESS');
+  $('logoutBtn').disabled=false;
+};
+
+async function bootAuth(){
+  log('BUILD',BUILD);
+  const {data:{session},error:authErr}=await supabase.auth.getSession();
+  if(authErr){ showError('AUTH_SESSION',authErr); return; }
+  await initForSession(session);
+}
+
+$('loginBtn').onclick=async()=>{
+  const email=$('loginEmail').value.trim();
+  const password=$('loginPassword').value;
+  if(!email||!password){alert('Bitte E-Mail und Passwort eingeben.');return;}
+  $('loginBtn').disabled=true;
+  log('LOGIN_START',{email});
+  const {data,error}=await supabase.auth.signInWithPassword({email,password});
+  if(error){ showError('LOGIN',error); $('authBox').textContent='Anmeldung fehlgeschlagen: '+error.message; }
+  else { log('LOGIN_SUCCESS',{userId:data.user?.id,email:data.user?.email}); await initForSession(data.session); }
+  $('loginBtn').disabled=false;
+};
+
+supabase.auth.onAuthStateChange(async (event, session)=>{
+  log('AUTH_EVENT',{event,userId:session?.user?.id||null});
+  if(event==='SIGNED_IN' || event==='SIGNED_OUT' || event==='TOKEN_REFRESHED'){
+    await initForSession(session);
+  }
+});
+
+bootAuth();
+setInterval(updateCounts,8000);
 
 $('addBtn').onclick=async()=>{
   if(!feedings$){alert('Legend-State ist noch nicht aktiv.');return;}
