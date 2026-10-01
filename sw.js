@@ -1,7 +1,34 @@
-const CACHE="horsehub-v2.0.5";
-const ASSETS=["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png"];
-self.addEventListener("install",event=>{event.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()))});
-self.addEventListener("activate",event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
-self.addEventListener("fetch",event=>{if(event.request.method!=="GET")return;const url=new URL(event.request.url);if(url.pathname.endsWith("/index.html")||url.pathname.endsWith("/")){event.respondWith(fetch(event.request,{cache:"no-store"}).then(resp=>{const copy=resp.clone();caches.open(CACHE).then(c=>c.put(event.request,copy));return resp}).catch(()=>caches.match(event.request)));return;}event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(resp=>{const copy=resp.clone();caches.open(CACHE).then(c=>c.put(event.request,copy));return resp}).catch(()=>cached)))});
-self.addEventListener("push",event=>{let data={title:"HorseHub",body:"Neue Erinnerung",url:"./"};try{if(event.data)data={...data,...event.data.json()}}catch(e){try{if(event.data)data.body=event.data.text()}catch(_){} }event.waitUntil(self.registration.showNotification(data.title,{body:data.body,icon:"./icon-192.png",badge:"./icon-192.png",tag:data.tag||"horsehub-push",data:{url:data.url||"./"}}))});
-self.addEventListener("notificationclick",event=>{event.notification.close();const url=event.notification.data?.url||"./";event.waitUntil(clients.matchAll({type:"window",includeUncontrolled:true}).then(list=>{for(const c of list){if("focus" in c){c.focus();return c}}return clients.openWindow(url)}))});
+const CACHE = 'hh-rxdb-lab-v1';
+const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', event => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin === location.origin) {
+    event.respondWith(fetch(req).then(res => {
+      const copy = res.clone();
+      caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+      return res;
+    }).catch(() => caches.match(req).then(r => r || caches.match('./index.html'))));
+    return;
+  }
+  if (url.hostname.endsWith('esm.sh') || url.hostname.endsWith('jsdelivr.net') || url.hostname.endsWith('unpkg.com')) {
+    event.respondWith(caches.match(req).then(cached => cached || fetch(req).then(res => {
+      const copy = res.clone();
+      caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+      return res;
+    })));
+  }
+});
