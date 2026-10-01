@@ -175,7 +175,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 2.0.2 – Sync V2 Delete-Fix</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 2.0.3 – Sync V2 Pull-Identity-Diagnose</div>
 </div>
 
 </section>
@@ -217,7 +217,7 @@ let horseHubCloudUser=null;
 let horseHubCloudSyncing=false;
 const horseHubCloudTimers=new Map();
 function setCloudStatus(text,isError=false){const el=$('accountCloudStatus');if(el){el.textContent=text;el.style.color=isError?'#a33':''}}
-const HORSEHUB_RUNTIME_BUILD='HH-2.0.2-SYNCV2-DELETE-FIX';
+const HORSEHUB_RUNTIME_BUILD='HH-2.0.3-SYNCV2-PULL-IDENTITY-DIAGNOSTIC';
 const HORSEHUB_SYNC_ENGINE='SYNC_V2_FEEDINGS+LEGACY_HORSE_SYNC_ISOLATED';
 const HORSEHUB_LOCAL_WRITE_TRACE_KEY='horsehub_local_write_trace_v1';
 const HORSEHUB_LOCAL_WRITE_TRACE_MAX=500;
@@ -754,7 +754,7 @@ async function syncCurrentHorseFromCloud(localId){
    in horsehub_v2_feedings, one row per feeding. No full-horse JSON merge.
    ================================================================ */
 const HORSEHUB_V2_FEEDING_TABLE='horsehub_v2_feedings';
-const HORSEHUB_V2_RUNTIME='HH-2.0.2-SYNCV2-DELETE-FIX';
+const HORSEHUB_V2_RUNTIME='HH-2.0.3-SYNCV2-PULL-IDENTITY-DIAGNOSTIC';
 const HORSEHUB_V2_FEEDING_TOMBSTONES='horsehub_v2_feeding_tombstones';
 
 let horseHubV2FeedingTimers=new Map();
@@ -920,20 +920,28 @@ async function runV2PullDiagnostic(){
   const h=getHorses().find(x=>x.id===(window.currentHorseProfileId||getHorses()[0]?.id));
   if(!h){out.innerHTML='<b>⚠️ Kein Pferd vorhanden.</b>';return}
   if(!horseHubCloudUser){out.innerHTML='<b>⚠️ Nicht bei Supabase angemeldet.</b>';return}
-  out.innerHTML='⏳ V2-Pull-Diagnose läuft …';
+  out.innerHTML='⏳ V2-Pull-Diagnose 2.0.3 läuft …';
   try{
     if(!h.cloud_id)throw new Error('Pferd hat keine Cloud-ID.');
     const local=v2LocalFeedings(h);
     const cloud=await v2ReadCloudFeedings(h.cloud_id);
     const tombstones=v2FeedingTombstonesRead();
     const merged=v2MergeFeedings(local,cloud,tombstones,h.cloud_id);
-    const targetCloud=cloud.filter(r=>String(r.label||'').includes('SYNC-V2-TEST-A'));
-    const targetLocal=local.filter(r=>String(r.label||'').includes('SYNC-V2-TEST-A'));
-    const targetMerged=merged.filter(r=>String(r.label||'').includes('SYNC-V2-TEST-A'));
-    const hiddenTombstone=Object.values(tombstones).filter(t=>String(t?.clientId||'')===String(targetCloud[0]?.client_id||''));
+    const {data:ownerRows,error:ownerError}=await supabaseClient.from(HORSEHUB_V2_FEEDING_TABLE).select('horse_id,client_id,label,deleted_at,created_at,updated_at').eq('owner_id',horseHubCloudUser.id);
+    if(ownerError)throw ownerError;
+    const allOwnerRows=Array.isArray(ownerRows)?ownerRows:[];
+    const ownerHorseIds=[...new Set(allOwnerRows.map(r=>String(r.horse_id||'')))].filter(Boolean);
+    const ownerGroups=ownerHorseIds.map(hid=>({horseId:hid,total:allOwnerRows.filter(r=>String(r.horse_id)===hid).length,active:allOwnerRows.filter(r=>String(r.horse_id)===hid&&!r.deleted_at).length}));
+    const targetAll=allOwnerRows.filter(r=>String(r.label||'').includes('SYNC-V2-TEST-C'));
+    const targetCloud=cloud.filter(r=>String(r.label||'').includes('SYNC-V2-TEST-C'));
+    const targetLocal=local.filter(r=>String(r.label||'').includes('SYNC-V2-TEST-C'));
+    const targetMerged=merged.filter(r=>String(r.label||'').includes('SYNC-V2-TEST-C'));
+    const hiddenTombstone=Object.values(tombstones).filter(t=>String(t?.clientId||'')===String(targetAll[0]?.client_id||''));
     const missing=cloud.filter(r=>!merged.some(f=>String(f.id)===String(r.client_id))&&!r.deleted_at).slice(0,10).map(r=>({clientId:r.client_id,label:r.label,updatedAt:r.updated_at,deletedAt:r.deleted_at||''}));
-    out.innerHTML=`<b>🔎 V2-Pull-Diagnose für ${escapeHtml(h.name||'Pferd')}</b><br>Cloud gelesen: <b>${cloud.length}</b> · aktiv: <b>${cloud.filter(r=>!r.deleted_at).length}</b> · lokal vorher: <b>${local.length}</b> · Merge-Ergebnis: <b>${merged.length}</b><br><br><b>SYNC-V2-TEST-A</b><br>Cloud: ${targetCloud.length?'✅ vorhanden':'❌ fehlt'} · Lokal: ${targetLocal.length?'✅ vorhanden':'❌ fehlt'} · Merge: ${targetMerged.length?'✅ enthalten':'❌ fehlt'} · Tombstone: ${hiddenTombstone.length?'⚠️ vorhanden':'keiner'}<br><br>${missing.length?'<b>Cloud-Zeilen, die im Merge fehlen:</b><br>'+missing.map(x=>`${escapeHtml(x.label||'')} <span class="muted">(${escapeHtml(x.clientId||'')})</span>`).join('<br>'):'<span class="muted">Keine Cloud-Zeile fehlt im Merge.</span>'}`;
-    horseSyncTrace('V2_FEEDING_PULL_DIAGNOSTIC',{horseId:h.id,cloudId:h.cloud_id,cloudRows:cloud.length,cloudActiveRows:cloud.filter(r=>!r.deleted_at).length,localRows:local.length,mergedRows:merged.length,targetCloud:targetCloud.length,targetLocal:targetLocal.length,targetMerged:targetMerged.length,tombstoneForTarget:hiddenTombstone.length,missingRows:missing});
+    const scopedMatchesHorse=targetAll.filter(r=>String(r.horse_id)===String(h.cloud_id)).length;
+    const groupText=ownerGroups.map(g=>`${escapeHtml(g.horseId)}: ${g.total} (${g.active} aktiv)`).join('<br>');
+    out.innerHTML=`<b>🔎 V2-Pull-Diagnose 2.0.3 für ${escapeHtml(h.name||'Pferd')}</b><br><b>Query-Identität:</b> owner_id=<code>${escapeHtml(horseHubCloudUser.id)}</code><br>horse_id=<code>${escapeHtml(h.cloud_id)}</code><br><br><b>Gezielter Pull:</b> Cloud gelesen <b>${cloud.length}</b> · aktiv <b>${cloud.filter(r=>!r.deleted_at).length}</b> · lokal vorher <b>${local.length}</b> · Merge <b>${merged.length}</b><br>TEST-C im gezielten Pull: ${targetCloud.length?'✅ vorhanden':'❌ fehlt'} · TEST-C lokal: ${targetLocal.length?'✅ vorhanden':'❌ fehlt'} · Merge: ${targetMerged.length?'✅ enthalten':'❌ fehlt'}<br><br><b>Owner-weite V2-Kontrolle:</b> ${allOwnerRows.length} Zeilen in der Tabelle<br>TEST-C owner-weit: ${targetAll.length?'✅ vorhanden':'❌ fehlt'} · horse_id von TEST-C: <code>${targetAll[0]?escapeHtml(targetAll[0].horse_id):'—'}</code><br>TEST-C gehört zum aktuellen horse_id: ${targetAll.length?(scopedMatchesHorse?'✅ JA':'❌ NEIN'):'—'}<br><br><b>Gruppen nach horse_id:</b><br>${groupText||'keine'}<br><br>${missing.length?'<b>Cloud-Zeilen, die im Merge fehlen:</b><br>'+missing.map(x=>`${escapeHtml(x.label||'')} <span class="muted">(${escapeHtml(x.clientId||'')})</span>`).join('<br>'):'<span class="muted">Keine aktive Cloud-Zeile fehlt im Merge.</span>'}`;
+    horseSyncTrace('V2_FEEDING_PULL_DIAGNOSTIC',{horseId:h.id,cloudId:h.cloud_id,cloudRows:cloud.length,cloudActiveRows:cloud.filter(r=>!r.deleted_at).length,localRows:local.length,mergedRows:merged.length,targetCloud:targetCloud.length,targetLocal:targetLocal.length,targetMerged:targetMerged.length,tombstoneForTarget:hiddenTombstone.length,missingRows:missing,ownerRowCount:allOwnerRows.length,ownerGroups:ownerGroups,targetOwnerWide:targetAll.map(r=>({horseId:r.horse_id,clientId:r.client_id,label:r.label,deletedAt:r.deleted_at||''}))});
   }catch(e){
     horseSyncTrace('V2_FEEDING_PULL_DIAGNOSTIC_ERROR',{horseId:h.id,code:e?.code||'',status:e?.status||'',message:e?.message||String(e)});
     out.innerHTML=`<b>❌ V2-Pull-Diagnose Fehler:</b> ${escapeHtml(e?.message||String(e))}`;
