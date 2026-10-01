@@ -175,7 +175,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 2.0.4 – Sync V2 Delete-Race-Fix</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 2.0.5 – Sync V2 Delete-Authoritative</div>
 </div>
 
 </section>
@@ -217,7 +217,7 @@ let horseHubCloudUser=null;
 let horseHubCloudSyncing=false;
 const horseHubCloudTimers=new Map();
 function setCloudStatus(text,isError=false){const el=$('accountCloudStatus');if(el){el.textContent=text;el.style.color=isError?'#a33':''}}
-const HORSEHUB_RUNTIME_BUILD='HH-2.0.4-SYNCV2-DELETE-RACE-FIX';
+const HORSEHUB_RUNTIME_BUILD='HH-2.0.5-SYNCV2-DELETE-AUTHORITATIVE';
 const HORSEHUB_SYNC_ENGINE='SYNC_V2_FEEDINGS+LEGACY_HORSE_SYNC_ISOLATED';
 const HORSEHUB_LOCAL_WRITE_TRACE_KEY='horsehub_local_write_trace_v1';
 const HORSEHUB_LOCAL_WRITE_TRACE_MAX=500;
@@ -754,7 +754,7 @@ async function syncCurrentHorseFromCloud(localId){
    in horsehub_v2_feedings, one row per feeding. No full-horse JSON merge.
    ================================================================ */
 const HORSEHUB_V2_FEEDING_TABLE='horsehub_v2_feedings';
-const HORSEHUB_V2_RUNTIME='HH-2.0.4-SYNCV2-DELETE-RACE-FIX';
+const HORSEHUB_V2_RUNTIME='HH-2.0.5-SYNCV2-DELETE-AUTHORITATIVE';
 const HORSEHUB_V2_FEEDING_TOMBSTONES='horsehub_v2_feeding_tombstones';
 
 let horseHubV2FeedingTimers=new Map();
@@ -884,8 +884,32 @@ async function syncV2FeedingsForHorse(localHorseId){
     // First import cloud rows that do not exist locally and apply newer cloud rows.
     const merged=v2MergeFeedings(current,cloud,tombstones,h.cloud_id);
     horseSyncTrace('V2_FEEDING_MERGE_PREVIEW',{horseId:localHorseId,cloudRows:cloud.length,localRows:current.length,mergedRows:merged.length,addedFromCloud:merged.filter(f=>!current.some(x=>String(x.id)===String(f.id))).length,targetPresentInCloud:cloud.some(r=>String(r.label||'').includes('SYNC-V2-TEST-A')),targetPresentInLocal:current.some(f=>String(f.label||'').includes('SYNC-V2-TEST-A')),targetPresentInMerged:merged.some(f=>String(f.label||'').includes('SYNC-V2-TEST-A'))});
-    // Push local rows that are newer or missing in the cloud.
+    // Local deletions are explicit user actions and are authoritative until
+    // the Cloud row confirms the tombstone. Process them BEFORE any local
+    // upserts so an active Cloud row can never be reintroduced during the
+    // same sync pass. Do not compare client/server clocks here: clock skew
+    // must not resurrect a feeding the user just deleted.
+    const t2=v2FeedingTombstonesRead();
+    const localDeleteIds=new Set();
+    for(const [key,t] of Object.entries(t2)){
+      if(!t||t.cloudId!==h.cloud_id||t.horseId!==localHorseId)continue;
+      const clientId=String(t.clientId||'');
+      if(!clientId)continue;
+      localDeleteIds.add(clientId);
+      const c=cloudById.get(clientId);
+      try{
+        const written=await v2DeleteFeedingRow(h.cloud_id,t,c||null);
+        if(written?.deleted_at){delete t2[key];}
+      }catch(deleteError){
+        horseSyncTrace('V2_FEEDING_DELETE_RETRY',{horseId:localHorseId,clientId,code:deleteError?.code||'',message:deleteError?.message||String(deleteError)});
+      }
+    }
+    v2FeedingTombstonesWrite(t2);
+
+    // Push local rows that are newer or missing in the Cloud, but NEVER
+    // resurrect an id that has a local deletion tombstone.
     for(const f of merged){
+      if(localDeleteIds.has(String(f.id)))continue;
       const c=cloudById.get(String(f.id));
       const lt=new Date(f.updated_at||0).getTime(),ct=new Date(c?.updated_at||0).getTime();
       if(!c || (lt>ct && !c.deleted_at)){
@@ -893,19 +917,6 @@ async function syncV2FeedingsForHorse(localHorseId){
         if(written){f.cloud_synced_at=written.updated_at;f.updated_at=written.updated_at;f.cloud_dirty=false;}
       }
     }
-    // Push local deletion tombstones. They are retained until a cloud row is confirmed.
-    const t2=v2FeedingTombstonesRead();
-    for(const [key,t] of Object.entries(t2)){
-      if(!t||t.cloudId!==h.cloud_id||t.horseId!==localHorseId)continue;
-      const c=cloudById.get(String(t.clientId));
-      const localDeleteTs=new Date(t.deleted_at||0).getTime();
-      const cloudTs=new Date(c?.updated_at||0).getTime();
-      if(!c || localDeleteTs>=cloudTs || !!c.deleted_at){
-        const written=await v2DeleteFeedingRow(h.cloud_id,t,c||null);
-        if(written && new Date(written.deleted_at||0).getTime()>=localDeleteTs){delete t2[key];}
-      }
-    }
-    v2FeedingTombstonesWrite(t2);
     // Re-read after writes: the cloud result is now the authoritative row set.
     const finalCloud=await v2ReadCloudFeedings(h.cloud_id);
     horseSyncTrace('V2_FEEDING_FINAL_CLOUD_READ',{horseId:localHorseId,cloudId:h.cloud_id,cloudRows:finalCloud.length,cloudActiveRows:finalCloud.filter(r=>!r.deleted_at).length,targetPresentInCloud:finalCloud.some(r=>String(r.label||'').includes('SYNC-V2-TEST-A'))});
