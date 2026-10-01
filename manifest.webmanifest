@@ -1,9 +1,13 @@
 {
-  "name": "HorseHub PowerSync Sync Lab",
-  "short_name": "PowerSync Lab",
+  "name": "HorseHub Legend-State Sync Lab 1.1",
+  "short_name": "Legend Lab",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#171b1d",
-  "theme_color": "#171b1d",
-  "lang": "de"
+  "background_color": "#111517",
+  "theme_color": "#151a1d",
+  "lang": "de",
+  "icons": [
+    {"src":"./icon-192.png","sizes":"192x192","type":"image/png"},
+    {"src":"./icon-512.png","sizes":"512x512","type":"image/png"}
+  ]
 }

@@ -1,15 +1,309 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#171b1d">
-  <meta name="description" content="HorseHub PowerSync Sync Lab – isolierter Offline-First-Test">
-  <title>HorseHub PowerSync Sync Lab</title>
-  <link rel="manifest" href="./manifest.webmanifest">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#151a1d">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<title>HorseHub Legend-State Sync Lab</title>
+<style>
+:root{color-scheme:dark;--bg:#111517;--card:#1b2023;--card2:#151a1d;--line:#31383c;--text:#f2f5f5;--muted:#aab2b5;--good:#63d79b;--warn:#f0c866;--bad:#f47f7f;--accent:#c88b32}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:linear-gradient(180deg,#111517,#0e1214);color:var(--text)}
+main{max-width:760px;margin:auto;padding:18px 14px 40px}.hero{padding:8px 4px 16px}.hero h1{margin:0 0 8px;font-size:28px}.hero p{margin:0;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.16)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.grow{flex:1}.pill{padding:9px 12px;border-radius:999px;background:#20272b;color:#d7dddf;font-size:14px}.dot{width:11px;height:11px;border-radius:50%;display:inline-block;margin-right:8px;background:#777}.ok{background:var(--good)}.warn{background:var(--warn)}.bad{background:var(--bad)}
+label{display:block;color:var(--muted);font-size:14px;margin:12px 0 6px}input{width:100%;border:1px solid #41494d;background:#0e1214;color:var(--text);border-radius:12px;padding:13px;font-size:16px}
+button{border:0;border-radius:12px;padding:12px 16px;font-size:16px;font-weight:700;color:#fff;background:#30383c;cursor:pointer}button.primary{background:var(--accent);color:#0f120f}button.danger{background:#8e4448}button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stat{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:14px}.stat b{display:block;font-size:22px;margin-top:4px}.small{font-size:13px;color:var(--muted)}
+.list{display:grid;gap:10px;margin-top:12px}.item{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:13px}.item strong{font-size:16px}.item .meta{color:var(--muted);font-size:13px;margin-top:4px}.item .actions{display:flex;gap:8px;margin-top:9px}.item .actions button{padding:9px 11px;font-size:14px}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b0e10;border:1px solid #2b3135;border-radius:12px;padding:12px;max-height:360px;overflow:auto;font-size:12px;line-height:1.45}.section-title{font-size:20px;margin:0 0 10px}.hidden{display:none}.statusline{margin-top:10px;color:var(--muted)}
+@media (max-width:520px){.grid{grid-template-columns:1fr 1fr}.hero h1{font-size:25px}}
+</style>
 </head>
 <body>
-  <div id="app"></div>
-  <script type="module" src="./src/main.js"></script>
-</body>
-</html>
+<main>
+  <section class="hero">
+    <h1>🧪 HorseHub Legend-State Sync Lab</h1>
+    <p>Isolierter Test. Diese App verwendet keine HorseHub-localStorage-Daten und schreibt nur in <code>horsehub_legend_lab_feedings</code>.</p>
+  </section>
+
+  <section class="card">
+    <div class="row"><span id="netDot" class="dot"></span><b>Netzwerk:</b><span id="netText">prüfe …</span><span class="grow"></span><span class="pill" id="build">Legend Lab 1.1</span></div>
+    <div class="row" style="margin-top:10px"><span id="syncDot" class="dot"></span><b>Legend-State:</b><span id="syncText">initialisiere …</span></div>
+    <div id="authBox" class="statusline">Authentifizierung wird geprüft …</div>
+    <div id="loginBox" style="margin-top:12px" class="hidden">
+      <label for="loginEmail">Supabase-E-Mail</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="deine E-Mail-Adresse">
+      <label for="loginPassword">Supabase-Passwort</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Passwort">
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="loginBtn">🔐 Anmelden</button>
+      </div>
+      <div class="small" style="margin-top:10px">Nutze hier dieselben Supabase-Zugangsdaten wie bei HorseHub. Die Zugangsdaten werden nur an Supabase übermittelt und nicht von diesem Test gespeichert.</div>
+    </div>
+    <div id="logoutRow" class="row hidden" style="margin-top:12px">
+      <button id="logoutBtn">Abmelden</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 class="section-title">Testdaten</h2>
+    <label for="label">Bezeichnung</label><input id="label" value="LEGEND TEST A">
+    <div class="grid">
+      <div><label for="amount">Menge</label><input id="amount" value="1"></div>
+      <div><label for="unit">Einheit</label><input id="unit" value="kg"></div>
+    </div>
+    <label for="horse">horse_id</label><input id="horse" value="legend-lab-horse-1">
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="addBtn">＋ Fütterung lokal anlegen</button>
+      <button id="refreshBtn">↻ Cloud/Local neu laden</button>
+      <button class="danger" id="clearBtn">Lokalen Test-Cache löschen</button>
+    </div>
+    <div class="small" style="margin-top:10px">Testablauf: auf beiden Geräten mit demselben Supabase-Konto anmelden → auf Gerät A anlegen → Gerät B öffnen → prüfen → auf B ändern/löschen → A prüfen.</div>
+  </section>
+
+  <section class="card">
+    <h2 class="section-title">Sync-Diagnose</h2>
+    <div class="grid">
+      <div class="stat">Lokal aktiv<b id="localCount">–</b></div>
+      <div class="stat">Cloud aktiv<b id="cloudCount">–</b></div>
+      <div class="stat">Lokale Gesamtzahl<b id="localAll">–</b></div>
+      <div class="stat">Cloud Gesamtzahl<b id="cloudAll">–</b></div>
+    </div>
+    <div id="syncStateText" class="statusline">Sync-Status: –</div>
+    <div id="lastEvent" class="statusline">Letztes Ereignis: –</div>
+    <div id="lastError" class="statusline">Letzter Fehler: –</div>
+  </section>
+
+  <section class="card">
+    <h2 class="section-title">Fütterungen</h2>
+    <div id="items" class="list"></div>
+  </section>
+
+  <section class="card">
+    <h2 class="section-title">Direkter Supabase-Test</h2>
+    <div class="row">
+      <button id="directInsertBtn">☁ Direktes INSERT</button>
+      <button id="directUpdateBtn">✎ Direktes UPDATE</button>
+      <button id="cloudQueryBtn">☁ Cloud abfragen</button>
+    </div>
+    <div class="small" style="margin-top:10px">Dieser Test benutzt nicht den Legend-State-Sync, sondern den Supabase-Client direkt.</div>
+  </section>
+
+  <section class="card">
+    <h2 class="section-title">Technischer Log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.117.2';
+import { observable, syncState, when } from 'https://esm.sh/@legendapp/state@3.0.0-beta.48';
+import { syncedSupabase, configureSyncedSupabase } from 'https://esm.sh/@legendapp/state@3.0.0-beta.48/sync-plugins/supabase';
+import { ObservablePersistLocalStorage } from 'https://esm.sh/@legendapp/state@3.0.0-beta.48/persist-plugins/local-storage';
+
+const SUPABASE_URL = 'https://qbrledhoaufydvjxryce.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
+const TABLE = 'horsehub_legend_lab_feedings';
+const BUILD = 'HH-LEGEND-LAB-1.1-LOGIN';
+
+const $ = id => document.getElementById(id);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+let user = null;
+let feedings$ = null;
+let state$ = null;
+let realtimeChannel = null;
+let lastCreatedId = null;
+let logLines = [];
+let initializedForUserId = null;
+let initializing = false;
+
+function now(){ return new Date().toISOString(); }
+function log(event, data=''){
+  const line = `[${new Date().toLocaleTimeString('de-DE')}] ${event}${data ? ' ' + (typeof data === 'string' ? data : JSON.stringify(data)) : ''}`;
+  logLines.push(line); if(logLines.length>220) logLines.shift(); $('log').textContent = logLines.join('\n');
+  $('lastEvent').textContent = 'Letztes Ereignis: ' + event;
+}
+function showError(context, err){
+  const e = err?.cause || err;
+  const info = {name:e?.name, message:e?.message, code:e?.code, status:e?.status, details:e?.details, hint:e?.hint, stack:e?.stack};
+  log(context+'_ERROR', info); $('lastError').textContent = 'Letzter Fehler: ' + (e?.message || String(e)); $('syncDot').className='dot bad'; $('syncText').textContent='Fehler';
+}
+function setNet(){ const online=navigator.onLine; $('netDot').className='dot '+(online?'ok':'bad'); $('netText').textContent=online?'online':'offline'; }
+window.addEventListener('online',()=>{setNet(); log('NETWORK','online');});
+window.addEventListener('offline',()=>{setNet(); log('NETWORK','offline');}); setNet();
+
+function safeSnapshot(){
+  if(!feedings$) return {};
+  try { return feedings$.get() || {}; } catch { return {}; }
+}
+function activeLocalRows(){ return Object.values(safeSnapshot()).filter(v=>v && !v.deleted); }
+
+async function queryCloud(){
+  if(!user) return [];
+  const {data,error} = await supabase.from(TABLE).select('*').eq('owner_id',user.id).eq('horse_id',$('horse').value.trim()).order('updated_at',{ascending:false});
+  if(error){ showError('CLOUD_QUERY', error); return []; }
+  log('CLOUD_QUERY_OK',{count:data?.length||0});
+  return data||[];
+}
+async function updateCounts(){
+  const localAll=Object.values(safeSnapshot()).filter(Boolean); const localActive=localAll.filter(x=>!x.deleted);
+  $('localAll').textContent=localAll.length; $('localCount').textContent=localActive.length;
+  if(!user){$('cloudAll').textContent='–';$('cloudCount').textContent='–';return;}
+  const rows=await queryCloud(); $('cloudAll').textContent=rows.length; $('cloudCount').textContent=rows.filter(x=>!x.deleted).length;
+  renderRows();
+}
+function renderRows(){
+  const rows=activeLocalRows().sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));
+  $('items').innerHTML = rows.length ? rows.map(r=>`<div class="item"><strong>${escapeHtml(r.label||'–')}</strong><div>${escapeHtml(r.amount||'')} ${escapeHtml(r.unit||'')}</div><div class="meta">id=${escapeHtml(r.id)} · ${escapeHtml(r.updated_at||r.created_at||'')}</div><div class="actions"><button data-id="${r.id}" data-act="edit">✎ Ändern</button><button data-id="${r.id}" data-act="delete" class="danger">🗑 Löschen</button></div></div>`).join('') : '<div class="small">Keine aktiven lokalen Testdaten.</div>';
+}
+function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
+$('items').addEventListener('click', async e=>{
+  const btn=e.target.closest('button'); if(!btn) return; const id=btn.dataset.id, act=btn.dataset.act;
+  if(!feedings$ || !id) return;
+  if(act==='edit'){
+    const current=feedings$[id].get(); const label=prompt('Neue Bezeichnung', current?.label || ''); if(label===null) return;
+    log('LOCAL_UPDATE_START',{id,label}); feedings$[id].assign({label, updated_at:now()}); renderRows(); updateCounts();
+  }
+  if(act==='delete'){
+    log('LOCAL_DELETE_START',{id}); feedings$[id].deleted.set(true); feedings$[id].updated_at.set(now()); renderRows(); updateCounts();
+  }
+});
+
+async function destroyReplication(){
+  try{ realtimeChannel?.unsubscribe?.(); }catch{}
+  realtimeChannel=null;
+  try{ await feedings$?.[Symbol.for('legend-state-sync-unsubscribe')]?.(); }catch{}
+  feedings$=null; state$=null; initializedForUserId=null;
+}
+
+function showLogin(show){ $('loginBox').classList.toggle('hidden', !show); $('logoutRow').classList.toggle('hidden', show); }
+
+async function initForSession(session){
+  if(initializing) return;
+  initializing=true;
+  try{
+    await destroyReplication();
+    user=session?.user||null;
+    if(!user){
+      $('authBox').textContent='Nicht angemeldet. Bitte unten mit deinem bestehenden HorseHub-Supabase-Konto anmelden.';
+      showLogin(true);
+      $('syncDot').className='dot warn'; $('syncText').textContent='warte auf Login';
+      $('cloudAll').textContent='–'; $('cloudCount').textContent='–';
+      return;
+    }
+    showLogin(false);
+    $('authBox').textContent=`Angemeldet: ${user.email} · user.id=${user.id}`;
+    log('AUTH_SESSION',{userId:user.id,email:user.email});
+
+    log('INIT_START',{table:TABLE,userId:user.id});
+    configureSyncedSupabase({ generateId:()=>crypto.randomUUID() });
+    log('LEGEND_CONFIG_OK');
+
+    const uid=user.id;
+    feedings$ = observable(syncedSupabase({
+      supabase,
+      collection: TABLE,
+      filter: (select) => select.eq('owner_id', uid).eq('horse_id', $('horse').value.trim()),
+      realtime: { schema:'public', filter:`owner_id=eq.${uid}` },
+      persist: { name:'horsehub-legend-lab-feedings-v1-'+uid+'-'+$('horse').value.trim(), plugin: ObservablePersistLocalStorage, retrySync:true },
+      changesSince:'last-sync',
+      fieldCreatedAt:'created_at',
+      fieldUpdatedAt:'updated_at',
+      fieldDeleted:'deleted',
+      actions:['read','create','update','delete'],
+      retry:{ infinite:true },
+      debounceSet:250,
+    }));
+    initializedForUserId=uid;
+    log('LEGEND_REPLICATION_CREATED');
+    state$=syncState(feedings$);
+    feedings$.get();
+    log('LEGEND_GET_CALLED');
+    $('syncDot').className='dot warn'; $('syncText').textContent='Sync wird gestartet …';
+
+    try{
+      const ready = await Promise.race([when(state$.isLoaded),new Promise(r=>setTimeout(()=>r(false),12000))]);
+      log('LEGEND_INITIAL_STATE',{isLoaded:state$.isLoaded.get(),isPersistLoaded:state$.isPersistLoaded?.get?.(),isSyncEnabled:state$.isSyncEnabled?.get?.(),ready});
+    }catch(e){showError('LEGEND_INITIAL_WAIT',e)}
+
+    state$.onChange?.(({value})=>{
+      const sv=value||{}; log('SYNC_STATE',{isLoaded:sv.isLoaded,isPersistLoaded:sv.isPersistLoaded,isSyncEnabled:sv.isSyncEnabled,syncCount:sv.syncCount,lastSync:sv.lastSync,error:sv.error?.message||null});
+      if(sv.error){ $('syncDot').className='dot bad'; $('syncText').textContent='Fehler'; }
+      else if(sv.isLoaded){ $('syncDot').className='dot ok'; $('syncText').textContent='aktiv'; }
+    });
+
+    realtimeChannel = supabase.channel('legend-lab-'+uid).on('postgres_changes',{event:'*',schema:'public',table:TABLE,filter:`owner_id=eq.${uid}`},payload=>{
+      log('REALTIME_EVENT',{event:payload.eventType,id:payload.new?.id||payload.old?.id,label:payload.new?.label||payload.old?.label});
+      updateCounts();
+    }).subscribe(status=>log('REALTIME_STATUS',status));
+
+    await updateCounts();
+    renderRows();
+  }catch(e){
+    showError('LEGEND_INIT',e); $('syncText').textContent='Startfehler';
+  }finally{
+    initializing=false;
+  }
+}
+
+$('logoutBtn').onclick=async()=>{
+  $('logoutBtn').disabled=true;
+  log('LOGOUT_START');
+  const {error}=await supabase.auth.signOut();
+  if(error) showError('LOGOUT',error); else log('LOGOUT_SUCCESS');
+  $('logoutBtn').disabled=false;
+};
+
+async function bootAuth(){
+  log('BUILD',BUILD);
+  const {data:{session},error:authErr}=await supabase.auth.getSession();
+  if(authErr){ showError('AUTH_SESSION',authErr); return; }
+  await initForSession(session);
+}
+
+$('loginBtn').onclick=async()=>{
+  const email=$('loginEmail').value.trim();
+  const password=$('loginPassword').value;
+  if(!email||!password){alert('Bitte E-Mail und Passwort eingeben.');return;}
+  $('loginBtn').disabled=true;
+  log('LOGIN_START',{email});
+  const {data,error}=await supabase.auth.signInWithPassword({email,password});
+  if(error){ showError('LOGIN',error); $('authBox').textContent='Anmeldung fehlgeschlagen: '+error.message; }
+  else { log('LOGIN_SUCCESS',{userId:data.user?.id,email:data.user?.email}); await initForSession(data.session); }
+  $('loginBtn').disabled=false;
+};
+
+supabase.auth.onAuthStateChange(async (event, session)=>{
+  log('AUTH_EVENT',{event,userId:session?.user?.id||null});
+  if(event==='SIGNED_IN' || event==='SIGNED_OUT' || event==='TOKEN_REFRESHED'){
+    await initForSession(session);
+  }
+});
+
+bootAuth();
+setInterval(updateCounts,8000);
+
+$('addBtn').onclick=async()=>{
+  if(!feedings$){alert('Legend-State ist noch nicht aktiv.');return;}
+  const id='legend-'+crypto.randomUUID(); lastCreatedId=id;
+  const row={id,owner_id:user.id,horse_id:$('horse').value.trim(),label:$('label').value.trim()||'LEGEND TEST',amount:$('amount').value.trim(),unit:$('unit').value.trim()||'kg',created_at:now(),updated_at:now(),deleted:false};
+  log('LOCAL_CREATE',row); feedings$[id].set(row); renderRows(); await new Promise(r=>setTimeout(r,250)); await updateCounts();
+};
+$('refreshBtn').onclick=async()=>{ log('MANUAL_REFRESH_START'); try{ await state$?.sync?.(); }catch(e){showError('MANUAL_REFRESH',e)} await updateCounts(); renderRows(); };
+$('clearBtn').onclick=async()=>{ if(confirm('Lokalen Legend-Test-Cache dieses Geräts löschen? Cloud-Daten bleiben erhalten.')){ try{await state$?.clearPersist?.();log('LOCAL_CACHE_CLEARED');location.reload();}catch(e){showError('LOCAL_CACHE_CLEAR',e)} } };
+$('cloudQueryBtn').onclick=updateCounts;
+$('directInsertBtn').onclick=async()=>{
+  if(!user)return; const id='direct-'+crypto.randomUUID(); const row={id,owner_id:user.id,horse_id:$('horse').value.trim(),label:'DIRECT LEGEND TEST',amount:'99',unit:'kg',deleted:false};
+  log('DIRECT_INSERT_START',row); const {data,error}=await supabase.from(TABLE).insert(row).select().single(); if(error)showError('DIRECT_INSERT',error);else log('DIRECT_INSERT_OK',data); await updateCounts();
+};
+$('directUpdateBtn').onclick=async()=>{
+  if(!user)return; const rows=await queryCloud(); const target=rows[0]; if(!target){log('DIRECT_UPDATE_SKIP','keine Cloud-Zeile');return;} const label='DIRECT LEGEND UPDATE '+new Date().toLocaleTimeString('de-DE');
+  log('DIRECT_UPDATE_START',{id:target.id,label}); const {data,error}=await supabase.from(TABLE).update({label}).eq('id',target.id).eq('owner_id',user.id).select().single(); if(error)showError('DIRECT_UPDATE',error);else log('DIRECT_UPDATE_OK',data); await updateCounts();
+};
+
+init();
+setInterval(updateCounts,8000);
+</script>
+</body></html>
