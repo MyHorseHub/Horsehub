@@ -175,7 +175,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.16.0</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.17.0</div>
 </div>
 
 </section>
@@ -206,7 +206,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.16.0 – Horse Data Merge */
+/* HorseHub 1.17.0 – Horse Data Merge */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -219,6 +219,23 @@ const horseHubCloudTimers=new Map();
 function setCloudStatus(text,isError=false){const el=$('accountCloudStatus');if(el){el.textContent=text;el.style.color=isError?'#a33':''}}
 function cloneHorseDetails(v){try{return JSON.parse(JSON.stringify(v||{}))}catch(e){return {}}}
 function valuesEqual(a,b){try{return JSON.stringify(a)===JSON.stringify(b)}catch(e){return a===b}}
+function stableValue(v){
+  if(Array.isArray(v))return v.map(stableValue);
+  if(v&&typeof v==='object'){const o={};for(const k of Object.keys(v).sort())o[k]=stableValue(v[k]);return o}
+  return v;
+}
+function stableSerialize(v){try{return JSON.stringify(stableValue(v))}catch(e){return String(v)}}
+function cloudDetailsComparable(v){
+  const x=cloneHorseDetails(v||{});
+  delete x._local_id; delete x._schema_version;
+  return stableSerialize(x);
+}
+function cloudHorseDetailsDiffer(local,row){
+  if(!local||!row)return false;
+  const localDetails=cloudHorseDetails(local);
+  const cloudDetails=cloneHorseDetails(row.details&&typeof row.details==='object'?row.details:{});
+  return cloudDetailsComparable(localDetails)!==cloudDetailsComparable(cloudDetails) || String(local.name||'').trim()!==String(row.name||cloudDetails.name||'').trim();
+}
 function cloudHorseDetails(h){
   const localId=h?.id||('hlocal_'+Date.now());
   const copy=cloneHorseDetails(h);
@@ -524,7 +541,12 @@ async function syncCurrentHorseFromCloud(localId){
     return;
   }
   const synced=localHorse.cloud_synced_at||'';
-  const cloudChanged=!synced||new Date(data.updated_at||0).getTime()>new Date(synced||0).getTime();
+  // Do not rely on updated_at alone. Supabase timestamps can be equal even
+  // when the JSON payload differs (this was observed with feedingTimes).
+  // When the local horse is clean, a content difference means the cloud has a
+  // version this device has not adopted yet.
+  const cloudContentChanged=cloudHorseDetailsDiffer(localHorse,data);
+  const cloudChanged=!synced||new Date(data.updated_at||0).getTime()>new Date(synced||0).getTime()||cloudContentChanged;
   const localChangeSinceSync=hasUnsentLocalHorseChanges(localHorse);
   let final=localHorse;
   if(cloudChanged&&!localChangeSinceSync){
@@ -592,7 +614,11 @@ async function syncHorsesWithCloud(){
       }
       usedLocalIds.add(local.id);
       const localDirty=hasUnsentLocalHorseChanges(local);
-      const cloudChanged=!local.cloud_synced_at||new Date(row.updated_at||0).getTime()>new Date(local.cloud_synced_at||0).getTime();
+      // Content comparison is intentional here. A horse can have a different
+      // feedingTimes payload even when updated_at is identical, so timestamp
+      // comparison alone can leave one device permanently stale.
+      const cloudContentChanged=cloudHorseDetailsDiffer(local,row);
+      const cloudChanged=!local.cloud_synced_at||new Date(row.updated_at||0).getTime()>new Date(local.cloud_synced_at||0).getTime()||cloudContentChanged;
       if(localDirty){
         // Keep the local edit intact. The per-horse queue will perform a
         // three-way merge against the latest cloud row; this list sync never
