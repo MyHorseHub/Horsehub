@@ -1,4 +1,7 @@
-const CACHE='horsehub-legend-lab-1.0';
-self.addEventListener('install',e=>self.skipWaiting());
-self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
-self.addEventListener('fetch',e=>{});
+const CACHE="horsehub-v23.0";
+const ASSETS=["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png"];
+self.addEventListener("install",event=>{event.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()))});
+self.addEventListener("activate",event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
+self.addEventListener("fetch",event=>{if(event.request.method!=="GET")return;const url=new URL(event.request.url);if(url.pathname.endsWith("/index.html")||url.pathname.endsWith("/")){event.respondWith(fetch(event.request,{cache:"no-store"}).then(resp=>{const copy=resp.clone();caches.open(CACHE).then(c=>c.put(event.request,copy));return resp}).catch(()=>caches.match(event.request)));return;}event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(resp=>{const copy=resp.clone();caches.open(CACHE).then(c=>c.put(event.request,copy));return resp}).catch(()=>cached)))});
+self.addEventListener("push",event=>{let data={title:"HorseHub",body:"Neue Erinnerung",url:"./"};try{if(event.data)data={...data,...event.data.json()}}catch(e){try{if(event.data)data.body=event.data.text()}catch(_){} }event.waitUntil(self.registration.showNotification(data.title,{body:data.body,icon:"./icon-192.png",badge:"./icon-192.png",tag:data.tag||"horsehub-push",data:{url:data.url||"./"}}))});
+self.addEventListener("notificationclick",event=>{event.notification.close();const url=event.notification.data?.url||"./";event.waitUntil(clients.matchAll({type:"window",includeUncontrolled:true}).then(list=>{for(const c of list){if("focus" in c){c.focus();return c}}return clients.openWindow(url)}))});
