@@ -168,14 +168,14 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 </div>
 <div class="card"><h3>📝 Stall-Routinen</h3><p class="muted">Routinen werden automatisch in die Tagesliste übernommen. Bei „täglich“ erscheint die Aufgabe jeden Tag.</p><div id="routinesList"></div><button class="smallbtn" onclick="addRoutine()">+ Routine hinzufügen</button></div>
 <div class="card"><h3>🖼️ Startseiten-Titelbild</h3><p class="muted">Wähle ein eigenes Foto für die „Willkommen bei HorseHub!“-Kachel. Nach der Auswahl kannst du es wie ein Pferdefoto verschieben und zoomen.</p><div class="upload-row"><label class="upload-btn">📷 Kamera<input type="file" accept="image/*" capture="environment" onchange="setHomeHeroImage(this)"></label><label class="upload-btn">🖼️ Galerie<input type="file" accept="image/*" onchange="setHomeHeroImage(this)"></label><button class="secondary" onclick="editHomeHeroImage()">✏️ Bildausschnitt bearbeiten</button><button class="secondary" onclick="removeHomeHeroImage()">Bild entfernen</button></div><div id="heroPhotoEditor" class="hidden"></div></div>
-<div class="card" id="syncDiagnosticsCard"><h3>🔎 Sync-Diagnose</h3><p class="muted">Liest den lokalen und den aktuellen Cloud-Stand aus und zeigt Abweichungen. Die Diagnose verändert keine Daten.</p><div class="row" style="gap:8px;flex-wrap:wrap"><button class="secondary" onclick="runSyncDiagnostics()">🔍 Diagnose starten</button><button class="secondary" onclick="copySyncDiagnosticReport()">📋 Bericht kopieren</button></div><div id="syncDiagnosticsStatus" class="muted" style="margin-top:10px"></div><div id="syncDiagnosticsResults" style="margin-top:10px"></div></div>
+<div class="card" id="syncDiagnosticsCard"><h3>🔎 Sync-Diagnose 1.15</h3><p class="muted">Prüft lokalen und Cloud-Stand. Zusätzlich gibt es einen sicheren Roundtrip-Test über eine eigene Diagnose-Tabelle. Dabei werden keine Pferde, Fütterungen oder Aufgaben verändert.</p><div class="row" style="gap:8px;flex-wrap:wrap"><button class="secondary" onclick="runSyncDiagnostics()">🔍 Diagnose starten</button><button class="secondary" onclick="copySyncDiagnosticReport()">📋 Bericht kopieren</button></div><div class="setting-note" style="margin-top:12px"><b>↔️ Bidirektionaler Roundtrip-Test</b><br><span class="muted">Start auf diesem Gerät → Cloud → zweites Gerät → Cloud → zurück auf dieses Gerät. Der Test verwendet nur einen isolierten Datensatz in <code>horsehub_sync_diagnostics</code>.</span><div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px"><button onclick="startSyncRoundtripTest()">▶️ Roundtrip starten</button><button class="secondary" onclick="continueSyncRoundtripTest()">↻ Zweites Gerät / Test fortsetzen</button><button class="secondary" onclick="cleanupSyncRoundtripTest()">🧹 Testdaten löschen</button></div><div id="syncRoundtripStatus" class="muted" style="margin-top:10px"></div><div id="syncRoundtripResults" style="margin-top:8px"></div></div><div id="syncDiagnosticsStatus" class="muted" style="margin-top:10px"></div><div id="syncDiagnosticsResults" style="margin-top:10px"></div></div>
 <div class="card"><h3>🐴 Pferde auf der Startseite</h3><p class="muted">Lege fest, welche Pferde auf deiner Startseite angezeigt werden.</p><div id="horseVisibilitySettings"></div></div>
 <div class="card"><h3>💾 Daten</h3><p class="muted">Pferdedaten werden mit deinem HorseHub-Konto synchronisiert. Pferdefotos liegen geschützt in Supabase Storage und werden beim Ändern am selben Speicherplatz ersetzt.</p><button class="secondary" onclick="exportData()">Daten exportieren</button></div>
 
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.14.0</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.15.0</div>
 </div>
 
 </section>
@@ -206,7 +206,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.13.0 – Unified Sync: Horses + Routines + Daily Tasks */
+/* HorseHub 1.15.0 – Unified Sync + Roundtrip Diagnostics */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -1019,11 +1019,13 @@ let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;const b=$('installButton');if(b)b.classList.remove('hidden');const st=$('installStatus');if(st)st.textContent='Installation verfügbar';});
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;const b=$('installButton');if(b)b.classList.add('hidden');const st=$('installStatus');if(st)st.textContent='✅ HorseHub ist installiert';});
 async function installHorseHub(){if(!deferredInstallPrompt){alert('Wenn kein Installationsdialog erscheint, öffne das Browser-Menü ⋮ und wähle „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.');return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null}
-async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=11.0',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
+async function registerHorseHubPWA(){if(!('serviceWorker' in navigator))return;try{await navigator.serviceWorker.register('./sw.js?v=15.0',{scope:'./'});const st=$('installStatus');if(st&&!deferredInstallPrompt)st.textContent='PWA bereit';}catch(e){console.warn('Service Worker konnte nicht registriert werden',e)}}
 function exportData(){let data={horses:getHorses(),notes:JSON.parse(localStorage.getItem('notes')||'[]')};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='horsehub-daten.json';a.click();URL.revokeObjectURL(url)}
 initTheme();migrateContactCategories();renderHorses();renderNotes();renderPlans();renderContacts();renderCalendar();loadOwnerProfile();renderOwnerEmergencyDefaults();renderTodayTasks();renderRoutines();renderHomeHero();scheduleDailyReset();scheduleAllReminders();registerHorseHubPWA();handleAuthHashError();initHorseHubAuth();
 
 let horseHubLastDiagnosticReport='';
+const SYNC_DIAG_TABLE='horsehub_sync_diagnostics';
+const SYNC_DIAG_LOCAL_KEY='horsehub_sync_roundtrip';
 function diagEsc(v){return escapeHtml(String(v??''));}
 function diagTime(v){if(!v)return '–';const d=new Date(v);return Number.isNaN(d.getTime())?String(v):d.toLocaleString('de-DE');}
 function diagEq(a,b){try{return JSON.stringify(a)===JSON.stringify(b)}catch(e){return String(a)===String(b)}}
@@ -1043,7 +1045,7 @@ function diagHorseSummary(local,row){
   if(diff.length)state=cloudTs>syncedTs?'CLOUD_NEUER_ABER_DETAILS_ABWEICHEND':'DETAILS_ABWEICHEND';
   else if(local?.cloud_dirty||localTs>syncedTs)state='LOKAL_OFFEN';
   else if(cloudTs>syncedTs)state='CLOUD_NEUER';
-  return {state,diff,localUpdated:local?.local_updated_at||'',cloudSynced:local?.cloud_synced_at||'',cloudUpdated:row?.updated_at||'',photoLocal:local?.photo||'',photoCloud:row?.photo_url||''};
+  return {state,diff,localUpdated:local?.local_updated_at||'',cloudSynced:local?.cloud_synced_at||'',cloudUpdated:row?.updated_at||'',photoLocal:local?.photo_path||'',photoCloud:row?.photo_url||''};
 }
 async function runSyncDiagnostics(){
   const status=$('syncDiagnosticsStatus'),out=$('syncDiagnosticsResults');
@@ -1059,7 +1061,7 @@ async function runSyncDiagnostics(){
     for(const h of localH){
       const r=h.cloud_id?byCloud.get(h.cloud_id):null;
       if(!r){horseRows.push({name:h.name||h.id,state:h.cloud_id?'NICHT_IN_CLOUD':'NUR_LOKAL',detail:h.cloud_id?'Cloud-Datensatz fehlt':'Noch keine Cloud-ID'});horseIssues++;continue}
-      const s=diagHorseSummary(h,r);horseRows.push({name:h.name||r.name||h.id,state:s.state,detail:s.diff.length?`Abweichende Felder: ${s.diff.join(', ')}`:'keine Detail-Abweichung',photo:(s.photoLocal!==s.photoCloud)?'Foto abweichend':'Foto OK',times:`lokal ${diagTime(s.localUpdated)} · Sync ${diagTime(s.cloudSynced)} · Cloud ${diagTime(s.cloudUpdated)}`});if(s.state!=='OK')horseIssues++;
+      const s=diagHorseSummary(h,r);horseRows.push({name:h.name||r.name||h.id,state:s.state,detail:s.diff.length?`Abweichende Felder: ${s.diff.join(', ')}`:'keine Detail-Abweichung',photo:(s.photoLocal!==s.photoCloud)?'Foto-Pfad abweichend':'Foto-Pfad OK',times:`lokal ${diagTime(s.localUpdated)} · Sync ${diagTime(s.cloudSynced)} · Cloud ${diagTime(s.cloudUpdated)}`});if(s.state!=='OK')horseIssues++;
     }
     for(const r of ch){if(!localH.some(h=>h.cloud_id===r.id)){horseRows.push({name:r.name||r.id,state:'NUR_CLOUD',detail:'Cloud-Pferd lokal nicht gefunden'});horseIssues++;}}
     report.push({section:'Pferde',issues:horseIssues,rows:horseRows});
@@ -1084,7 +1086,7 @@ async function runSyncDiagnostics(){
     const {data:cloudC,error:ec}=await supabaseClient.from(TASK_COMPLETION_TABLE).select('task_key,task_date,done,updated_at').eq('owner_id',horseHubCloudUser.id).gte('task_date',new Date(Date.now()-31*86400000).toISOString().slice(0,10));
     if(ec)throw ec;
     const cc=Array.isArray(cloudC)?cloudC:[], cmap=new Map(cc.map(x=>[x.task_key,x])), keys=[...new Set([...Object.keys(localDone),...cc.map(x=>x.task_key)])], doneRows=[];let doneIssues=0;
-    for(const key of keys){const c=cmap.get(key),m=meta[key];if(!c){if(m) {doneRows.push({name:key,state:'NUR_LOKAL',detail:`lokal ${!!localDone[key]} · ${diagTime(m.updated_at)}`});doneIssues++;}continue}if(!m){doneRows.push({name:key,state:'NUR_CLOUD',detail:`Cloud ${!!c.done} · ${diagTime(c.updated_at)}`});doneIssues++;continue}const lu=new Date(m.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();let st='OK';if(!!localDone[key]!==!!c.done)st='ABHAKEN_ABWEICHEND';else if(cu>lu)st='CLOUD_NEUER';else if(lu>cu)st='LOKAL_OFFEN';if(st!=='OK')doneIssues++;doneRows.push({name:key,state:st,detail:`lokal ${!!localDone[key]} · Cloud ${!!c.done} · lokal ${diagTime(m.updated_at)} · Cloud ${diagTime(c.updated_at)}`});}
+    for(const key of keys){const c=cmap.get(key),m=meta[key];if(!c){if(m){doneRows.push({name:key,state:'NUR_LOKAL',detail:`lokal ${!!localDone[key]} · ${diagTime(m.updated_at)}`});doneIssues++;}continue}if(!m){doneRows.push({name:key,state:'NUR_CLOUD',detail:`Cloud ${!!c.done} · ${diagTime(c.updated_at)}`});doneIssues++;continue}const lu=new Date(m.updated_at||0).getTime(),cu=new Date(c.updated_at||0).getTime();let st='OK';if(!!localDone[key]!==!!c.done)st='ABHAKEN_ABWEICHEND';else if(cu>lu)st='CLOUD_NEUER';else if(lu>cu)st='LOKAL_OFFEN';else if(lu!==cu)st='ZEITSTEMPEL_ABWEICHUNG';if(st!=='OK')doneIssues++;doneRows.push({name:key,state:st,detail:`lokal ${!!localDone[key]} · Cloud ${!!c.done} · lokal ${diagTime(m.updated_at)} · Cloud ${diagTime(c.updated_at)}`});}
     report.push({section:'Erledigungsstatus',issues:doneIssues,rows:doneRows});
 
     const localKeys=['horses','routines','todayTasks','dailyDone','dailyDoneMeta','todayTaskTombstones','horse_delete_tombstones'];
@@ -1101,11 +1103,67 @@ async function runSyncDiagnostics(){
     status.textContent=`Diagnose abgeschlossen: ${new Date(stamp).toLocaleString('de-DE')}`;
   }catch(e){console.error('Sync-Diagnose',e);status.textContent=`⚠️ Diagnose fehlgeschlagen: ${cloudErrorText(e)}`;out.innerHTML='<div class="setting-note">Die Diagnose hat keine Daten verändert. Prüfe die Fehlermeldung oben.</div>';horseHubLastDiagnosticReport={error:String(e?.message||e)};}
 }
+function roundtripLocal(){try{return JSON.parse(localStorage.getItem(SYNC_DIAG_LOCAL_KEY)||'null')}catch(e){return null}}
+function setRoundtripStatus(msg,html=''){const s=$('syncRoundtripStatus'),r=$('syncRoundtripResults');if(s)s.textContent=msg;if(r)r.innerHTML=html;}
+function renderRoundtrip(t){
+  if(!t){setRoundtripStatus('Noch kein Roundtrip-Test angelegt.');return;}
+  const steps={created:'1/4 Normalgerät → Cloud',seen:'2/4 Cloud → Zweitgerät',returned:'3/4 Zweitgerät → Cloud',verified:'4/4 Cloud → Normalgerät'};
+  const ok=t.phase==='verified';
+  setRoundtripStatus(ok?'✅ Roundtrip vollständig bestanden':`🔄 ${steps[t.phase]||t.phase}`,`<div class="muted">Test-ID: <code>${diagEsc(t.test_id)}</code><br>Start ${diagTime(t.created_at)} · letzter Cloud-Stand ${diagTime(t.updated_at)}<br>${diagEsc(t.message||'')}</div>`);
+}
+async function startSyncRoundtripTest(){
+  if(!horseHubCloudUser){setRoundtripStatus('⚠️ Bitte zuerst anmelden.');return;}
+  const test_id='rt_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8);
+  const token='HH-'+Math.random().toString(36).slice(2,10).toUpperCase();
+  const now=new Date().toISOString();
+  setRoundtripStatus('⏳ Erzeuge isolierten Roundtrip-Datensatz …');
+  try{
+    const row={owner_id:horseHubCloudUser.id,test_id,phase:'created',origin_token:token,return_token:null,created_at:now,updated_at:now,device_a:'',device_b:'',message:'Vom Normalgerät angelegt'};
+    const {data,error}=await supabaseClient.from(SYNC_DIAG_TABLE).insert(row).select('*').single();
+    if(error)throw error;
+    localStorage.setItem(SYNC_DIAG_LOCAL_KEY,JSON.stringify(data));
+    renderRoundtrip(data);
+    setRoundtripStatus('✅ Schritt 1 bestanden – jetzt auf dem zweiten Gerät/Inkognito fortsetzen.','<div class="setting-note"><b>Jetzt wechseln:</b> Öffne HorseHub im Inkognito-Fenster mit demselben Konto und drücke dort „Zweites Gerät / Test fortsetzen“.</div>');
+  }catch(e){setRoundtripStatus(`⚠️ Roundtrip konnte nicht gestartet werden: ${cloudErrorText(e)}`);}
+}
+async function continueSyncRoundtripTest(){
+  if(!horseHubCloudUser){setRoundtripStatus('⚠️ Bitte zuerst anmelden.');return;}
+  setRoundtripStatus('⏳ Suche den neuesten offenen Roundtrip-Test …');
+  try{
+    const {data,error}=await supabaseClient.from(SYNC_DIAG_TABLE).select('*').eq('owner_id',horseHubCloudUser.id).in('phase',['created','seen','returned']).order('created_at',{ascending:false}).limit(1).maybeSingle();
+    if(error)throw error;if(!data){setRoundtripStatus('ℹ️ Kein offener Roundtrip-Test gefunden. Starte ihn zuerst auf dem Normalgerät.');return;}
+    const local=roundtripLocal();
+    if(data.phase==='created'){
+      const now=new Date().toISOString();const returnToken='RT-'+Math.random().toString(36).slice(2,10).toUpperCase();
+      const {data:w,error:e}=await supabaseClient.from(SYNC_DIAG_TABLE).update({phase:'seen',device_b:'zweites_gerät',return_token:returnToken,updated_at:now,message:'Vom zweiten Gerät gelesen und bestätigt'}).eq('owner_id',horseHubCloudUser.id).eq('test_id',data.test_id).eq('phase','created').select('*').single();
+      if(e)throw e;localStorage.setItem(SYNC_DIAG_LOCAL_KEY,JSON.stringify(w));renderRoundtrip(w);setRoundtripStatus('✅ Schritt 2 bestanden – jetzt auf dem Normalgerät fortsetzen.','<div class="setting-note"><b>Zurück wechseln:</b> Öffne das Normalgerät und drücke dort erneut „Zweites Gerät / Test fortsetzen“.</div>');return;
+    }
+    if(data.phase==='seen'){
+      if(local?.test_id!==data.test_id){localStorage.setItem(SYNC_DIAG_LOCAL_KEY,JSON.stringify(data));}
+      const now=new Date().toISOString();const {data:w,error:e}=await supabaseClient.from(SYNC_DIAG_TABLE).update({phase:'returned',device_a:'normalgerät',updated_at:now,message:'Normalgerät hat die Änderung des zweiten Geräts zurück aus der Cloud gelesen'}).eq('owner_id',horseHubCloudUser.id).eq('test_id',data.test_id).eq('phase','seen').select('*').single();
+      if(e)throw e;localStorage.setItem(SYNC_DIAG_LOCAL_KEY,JSON.stringify(w));renderRoundtrip(w);setRoundtripStatus('✅ Schritt 3 bestanden – letzter Schritt: erneut lesen und verifizieren.','<div class="setting-note"><b>Bitte jetzt noch einmal auf diesem Gerät</b> „Zweites Gerät / Test fortsetzen“ drücken.</div>');return;
+    }
+    if(data.phase==='returned'){
+      const {data:w,error:e}=await supabaseClient.from(SYNC_DIAG_TABLE).update({phase:'verified',updated_at:new Date().toISOString(),message:'Roundtrip vollständig auf demselben Gerät verifiziert'}).eq('owner_id',horseHubCloudUser.id).eq('test_id',data.test_id).eq('phase','returned').select('*').single();
+      if(e)throw e;localStorage.setItem(SYNC_DIAG_LOCAL_KEY,JSON.stringify(w));renderRoundtrip(w);return;
+    }
+  }catch(e){setRoundtripStatus(`⚠️ Roundtrip fehlgeschlagen: ${cloudErrorText(e)}`);}
+}
+async function cleanupSyncRoundtripTest(){
+  if(!horseHubCloudUser){setRoundtripStatus('⚠️ Bitte zuerst anmelden.');return}
+  const t=roundtripLocal();
+  try{
+    if(t?.test_id){const {error}=await supabaseClient.from(SYNC_DIAG_TABLE).delete().eq('owner_id',horseHubCloudUser.id).eq('test_id',t.test_id);if(error)throw error;}
+    else {const {data,error}=await supabaseClient.from(SYNC_DIAG_TABLE).select('test_id').eq('owner_id',horseHubCloudUser.id).order('created_at',{ascending:false}).limit(20);if(error)throw error;if(data?.length){const {error:e}=await supabaseClient.from(SYNC_DIAG_TABLE).delete().eq('owner_id',horseHubCloudUser.id).in('test_id',data.map(x=>x.test_id));if(e)throw e;}}
+    localStorage.removeItem(SYNC_DIAG_LOCAL_KEY);setRoundtripStatus('🧹 Roundtrip-Testdaten wurden gelöscht.');
+  }catch(e){setRoundtripStatus(`⚠️ Testdaten konnten nicht vollständig gelöscht werden: ${cloudErrorText(e)}`);}
+}
 async function copySyncDiagnosticReport(){
   if(!horseHubLastDiagnosticReport){await runSyncDiagnostics();}
-  const text=JSON.stringify(horseHubLastDiagnosticReport,null,2);
-  try{await navigator.clipboard.writeText(text);$('syncDiagnosticsStatus').textContent='📋 Diagnosebericht in die Zwischenablage kopiert.';}catch(e){$('syncDiagnosticsStatus').textContent='ℹ️ Kopieren nicht möglich. Diagnose ist oben sichtbar.';}
+  const text=JSON.stringify({diagnose:horseHubLastDiagnosticReport,roundtrip:roundtripLocal()},null,2);
+  try{await navigator.clipboard.writeText(text);$('syncDiagnosticsStatus').textContent='📋 Diagnose- und Roundtrip-Bericht in die Zwischenablage kopiert.';}catch(e){$('syncDiagnosticsStatus').textContent='ℹ️ Kopieren nicht möglich. Diagnose ist oben sichtbar.';}
 }
+window.addEventListener('DOMContentLoaded',()=>{renderRoundtrip(roundtripLocal())});
 </script>
 </div>
 </body>
