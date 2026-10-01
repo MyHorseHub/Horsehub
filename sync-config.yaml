@@ -1,0 +1,11 @@
+# Deploy this in the PowerSync dashboard.
+config:
+  edition: 3
+
+streams:
+  horsehub_feedings:
+    auto_subscribe: true
+    query: |
+      SELECT id, owner_id, horse_id, label, amount, unit, created_at, updated_at, deleted
+      FROM horsehub_legend_lab_feedings
+      WHERE owner_id = request.user_id()

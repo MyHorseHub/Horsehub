@@ -1,0 +1,21 @@
+{
+  "name": "horsehub-powersync-sync-lab",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run copy:ps-assets && vite build",
+    "preview": "vite preview",
+    "copy:ps-assets": "powersync-web copy-assets --output public/@powersync"
+  },
+  "dependencies": {
+    "@journeyapps/wa-sqlite": "2.0.6",
+    "@powersync/web": "2.4.1",
+    "@supabase/supabase-js": "2.117.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.1.0",
+    "vite": "^7.1.7"
+  }
+}
