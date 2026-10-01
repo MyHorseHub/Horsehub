@@ -168,14 +168,14 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 </div>
 <div class="card"><h3>📝 Stall-Routinen</h3><p class="muted">Routinen werden automatisch in die Tagesliste übernommen. Bei „täglich“ erscheint die Aufgabe jeden Tag.</p><div id="routinesList"></div><button class="smallbtn" onclick="addRoutine()">+ Routine hinzufügen</button></div>
 <div class="card"><h3>🖼️ Startseiten-Titelbild</h3><p class="muted">Wähle ein eigenes Foto für die „Willkommen bei HorseHub!“-Kachel. Nach der Auswahl kannst du es wie ein Pferdefoto verschieben und zoomen.</p><div class="upload-row"><label class="upload-btn">📷 Kamera<input type="file" accept="image/*" capture="environment" onchange="setHomeHeroImage(this)"></label><label class="upload-btn">🖼️ Galerie<input type="file" accept="image/*" onchange="setHomeHeroImage(this)"></label><button class="secondary" onclick="editHomeHeroImage()">✏️ Bildausschnitt bearbeiten</button><button class="secondary" onclick="removeHomeHeroImage()">Bild entfernen</button></div><div id="heroPhotoEditor" class="hidden"></div></div>
-<div class="card" id="syncDiagnosticsCard"><h3>🔎 Sync-Diagnose 1.15</h3><p class="muted">Prüft lokalen und Cloud-Stand. Zusätzlich gibt es einen sicheren Roundtrip-Test über eine eigene Diagnose-Tabelle. Dabei werden keine Pferde, Fütterungen oder Aufgaben verändert.</p><div class="row" style="gap:8px;flex-wrap:wrap"><button class="secondary" onclick="runSyncDiagnostics()">🔍 Diagnose starten</button><button class="secondary" onclick="copySyncDiagnosticReport()">📋 Bericht kopieren</button></div><div class="setting-note" style="margin-top:12px"><b>↔️ Bidirektionaler Roundtrip-Test</b><br><span class="muted">Start auf diesem Gerät → Cloud → zweites Gerät → Cloud → zurück auf dieses Gerät. Der Test verwendet nur einen isolierten Datensatz in <code>horsehub_sync_diagnostics</code>.</span><div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px"><button onclick="startSyncRoundtripTest()">▶️ Roundtrip starten</button><button class="secondary" onclick="continueSyncRoundtripTest()">↻ Zweites Gerät / Test fortsetzen</button><button class="secondary" onclick="cleanupSyncRoundtripTest()">🧹 Testdaten löschen</button></div><div id="syncRoundtripStatus" class="muted" style="margin-top:10px"></div><div id="syncRoundtripResults" style="margin-top:8px"></div></div><div id="syncDiagnosticsStatus" class="muted" style="margin-top:10px"></div><div id="syncDiagnosticsResults" style="margin-top:10px"></div></div>
+<div class="card" id="syncDiagnosticsCard"><h3>🔎 Sync-Diagnose 1.18 – Tiefendiagnose</h3><p class="muted">Prüft lokalen und Cloud-Stand. Zusätzlich gibt es einen sicheren Roundtrip-Test über eine eigene Diagnose-Tabelle. Dabei werden keine Pferde, Fütterungen oder Aufgaben verändert.</p><div class="row" style="gap:8px;flex-wrap:wrap"><button class="secondary" onclick="runSyncDiagnostics()">🔍 Diagnose starten</button><button class="secondary" onclick="copySyncDiagnosticReport()">📋 Bericht kopieren</button></div><div class="setting-note" style="margin-top:12px"><b>↔️ Bidirektionaler Roundtrip-Test</b><br><span class="muted">Start auf diesem Gerät → Cloud → zweites Gerät → Cloud → zurück auf dieses Gerät. Der Test verwendet nur einen isolierten Datensatz in <code>horsehub_sync_diagnostics</code>.</span><div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px"><button onclick="startSyncRoundtripTest()">▶️ Roundtrip starten</button><button class="secondary" onclick="continueSyncRoundtripTest()">↻ Zweites Gerät / Test fortsetzen</button><button class="secondary" onclick="cleanupSyncRoundtripTest()">🧹 Testdaten löschen</button></div><div id="syncRoundtripStatus" class="muted" style="margin-top:10px"></div><div id="syncRoundtripResults" style="margin-top:8px"></div></div><div class="setting-note" style="margin-top:12px"><b>🧪 Tiefendiagnose für Pferde-Sync</b><br><span class="muted">Prüft zusätzlich den echten lokalen Datensatz, den Cloud-Datensatz, den gespeicherten Cloud-Basisstand, einzelne Fütterungseinträge, den aktuellen Sync-Entscheidungsweg und den lokalen Sync-Verlauf. Es werden keine Pferdedaten verändert.</span><div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px"><select id="syncDeepHorse" style="flex:1;min-width:180px;padding:10px;border-radius:10px;border:1px solid #ccc"></select><button onclick="runHorseSyncDeepDiagnostics()">🧪 Pferd tief prüfen</button><button class="secondary" onclick="clearHorseSyncTrace()">🧹 Verlauf löschen</button></div><div id="syncDeepStatus" class="muted" style="margin-top:10px"></div><div id="syncDeepResults" style="margin-top:8px"></div></div><div id="syncDiagnosticsStatus" class="muted" style="margin-top:10px"></div><div id="syncDiagnosticsResults" style="margin-top:10px"></div></div>
 <div class="card"><h3>🐴 Pferde auf der Startseite</h3><p class="muted">Lege fest, welche Pferde auf deiner Startseite angezeigt werden.</p><div id="horseVisibilitySettings"></div></div>
 <div class="card"><h3>💾 Daten</h3><p class="muted">Pferdedaten werden mit deinem HorseHub-Konto synchronisiert. Pferdefotos liegen geschützt in Supabase Storage und werden beim Ändern am selben Speicherplatz ersetzt.</p><button class="secondary" onclick="exportData()">Daten exportieren</button></div>
 
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.17.0</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.18.0</div>
 </div>
 
 </section>
@@ -206,7 +206,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.17.0 – Horse Data Merge */
+/* HorseHub 1.18.0 – Horse Data Merge + Sync Deep Diagnostics */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -217,6 +217,10 @@ let horseHubCloudUser=null;
 let horseHubCloudSyncing=false;
 const horseHubCloudTimers=new Map();
 function setCloudStatus(text,isError=false){const el=$('accountCloudStatus');if(el){el.textContent=text;el.style.color=isError?'#a33':''}}
+function horseSyncTraceRead(){try{return JSON.parse(localStorage.getItem('horsehub_sync_trace')||'[]')||[]}catch(e){return []}}
+function horseSyncTrace(event,payload={}){try{const row={at:new Date().toISOString(),event,...payload};const a=horseSyncTraceRead();a.push(row);while(a.length>160)a.shift();localStorage.setItem('horsehub_sync_trace',JSON.stringify(a));}catch(e){}}
+function horseSyncTraceFor(id){return horseSyncTraceRead().filter(x=>!id||x.horseId===id).slice(-80)}
+function clearHorseSyncTrace(){localStorage.removeItem('horsehub_sync_trace');$('syncDeepStatus').textContent='🧹 Lokaler Sync-Verlauf gelöscht.';$('syncDeepResults').innerHTML=''}
 function cloneHorseDetails(v){try{return JSON.parse(JSON.stringify(v||{}))}catch(e){return {}}}
 function valuesEqual(a,b){try{return JSON.stringify(a)===JSON.stringify(b)}catch(e){return a===b}}
 function stableValue(v){
@@ -413,9 +417,11 @@ function mergeLocalEditWithCloud(local,row){
 }
 async function updateHorseInCloud(h){
   if(!horseHubCloudUser||!h?.cloud_id)return null;
+  horseSyncTrace('UPLOAD_START',{horseId:h.id,cloudId:h.cloud_id,feedingCount:Array.isArray(h.feedingTimes)?h.feedingTimes.length:0,localUpdatedAt:h.local_updated_at||'',cloudSyncedAt:h.cloud_synced_at||''});
   const {data:row,error:readError}=await supabaseClient.from('horses').select('id,name,photo_url,details,updated_at').eq('id',h.cloud_id).eq('owner_id',horseHubCloudUser.id).maybeSingle();
-  if(readError)throw readError;
-  if(!row)throw new Error('Cloud-Pferd nicht gefunden');
+  if(readError){horseSyncTrace('UPLOAD_READ_ERROR',{horseId:h.id,code:readError.code||'',message:readError.message||String(readError)});throw readError;}
+  if(!row){horseSyncTrace('UPLOAD_READ_MISSING',{horseId:h.id,cloudId:h.cloud_id});throw new Error('Cloud-Pferd nicht gefunden');}
+  horseSyncTrace('UPLOAD_CLOUD_READ',{horseId:h.id,cloudId:h.cloud_id,cloudUpdatedAt:row.updated_at||'',cloudFeedingCount:Array.isArray(row.details?.feedingTimes)?row.details.feedingTimes.length:0});
   const editStamp=h.local_updated_at||'';
   const expected=row.updated_at||'';
   const localSyncTs=new Date(h.cloud_synced_at||0).getTime();
@@ -428,6 +434,7 @@ async function updateHorseInCloud(h){
     const merged=mergeLocalEditWithCloud(h,row);
     details=merged.details;
     name=merged.name;
+    horseSyncTrace('UPLOAD_MERGED',{horseId:h.id,feedingBeforeLocal:Array.isArray(h.feedingTimes)?h.feedingTimes.length:0,feedingCloud:Array.isArray(row.details?.feedingTimes)?row.details.feedingTimes.length:0,feedingAfter:Array.isArray(details.feedingTimes)?details.feedingTimes.length:0});
   }
   const now=new Date().toISOString();
   const payload={name,details,updated_at:now};
@@ -435,14 +442,16 @@ async function updateHorseInCloud(h){
   let q=supabaseClient.from('horses').update(payload).eq('id',h.cloud_id).eq('owner_id',horseHubCloudUser.id);
   if(expected)q=q.eq('updated_at',expected);
   const {data,error}=await q.select('updated_at').maybeSingle();
-  if(error)throw error;
+  if(error){horseSyncTrace('UPLOAD_WRITE_ERROR',{horseId:h.id,code:error.code||'',status:error.status||'',message:error.message||String(error)});throw error;}
   if(!data){
+    horseSyncTrace('UPLOAD_WRITE_REJECTED',{horseId:h.id,expectedUpdatedAt:expected});
     // Another device changed the row between our read and write. Do not retry
     // with a stale snapshot; let the next pull reconcile it safely.
     setCloudStatus('ℹ️ Cloud wurde inzwischen geändert – lokaler Upload wurde sicher zurückgestellt.');
     return null;
   }
   const at=data.updated_at||now;
+  horseSyncTrace('UPLOAD_SUCCESS',{horseId:h.id,cloudId:h.cloud_id,updatedAt:at,feedingCount:Array.isArray(details.feedingTimes)?details.feedingTimes.length:0});
   const localNow=getHorses().find(x=>x.id===h.id)||h;
   const currentDetails=cloneHorseDetails(details);
   const mergedLocal={...localNow,...currentDetails,id:localNow.id,cloud_id:h.cloud_id,name,cloud_synced_at:at,local_updated_at:at,cloud_dirty:false,_cloud_base_details:cloneHorseDetails(currentDetails)};
@@ -453,8 +462,9 @@ function saveHorseCloudId(localId,cloudId,updatedAt,baseDetails){const hs=getHor
 function updateLocalHorsePhotoState(localId,photoPath,photoUrl){const hs=getHorses().map(x=>x.id===localId?{...x,photo_path:photoPath||'',photo:photoUrl||'',photo_dirty:false,photo_removed:false}:x);localStorage.setItem('horses',JSON.stringify(hs));return hs}
 async function syncHorseToCloud(id){
   if(!horseHubCloudUser||!id)return;
+  horseSyncTrace('QUEUE_RUN',{horseId:id});
   const h=getHorses().find(x=>x.id===id);
-  if(!h)return;
+  if(!h){horseSyncTrace('QUEUE_NO_LOCAL',{horseId:id});return;}
   const editStamp=h.local_updated_at||'';
   try{
     let cloudId=h.cloud_id;
@@ -468,6 +478,7 @@ async function syncHorseToCloud(id){
     }else{
       const at=await updateHorseInCloud({...h,cloud_id:cloudId});
       if(at){syncedAt=at;}
+      horseSyncTrace('QUEUE_AFTER_UPLOAD',{horseId:id,updatedAt:at||'',feedingCount:Array.isArray(getHorses().find(x=>x.id===id)?.feedingTimes)?getHorses().find(x=>x.id===id).feedingTimes.length:0});
     }
     const latestForPhoto=getHorses().find(x=>x.id===id)||h;
     if(cloudId){
@@ -477,6 +488,7 @@ async function syncHorseToCloud(id){
     setCloudStatus('☁️ Pferd und Änderungen synchronisiert.');
   }catch(e){
     console.warn('Horse konnte nicht mit der Cloud synchronisiert werden',e);
+    horseSyncTrace('QUEUE_ERROR',{horseId:id,code:e?.code||'',message:e?.message||String(e)});
     setCloudStatus(`⚠️ Cloud-Synchronisierung fehlgeschlagen: ${cloudErrorText(e)}. Deine lokalen Daten bleiben erhalten.`,true);
   }
 }
@@ -522,13 +534,15 @@ async function syncCurrentHorseFromCloud(localId){
   let query=supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id);
   if(localHorse.cloud_id) query=query.eq('id',localHorse.cloud_id); else query=query.filter('details->>_local_id','eq',localId);
   const {data,error}=await query.maybeSingle();
-  if(error)throw error;
+  if(error){horseSyncTrace('PULL_READ_ERROR',{horseId:localId,code:error.code||'',message:error.message||String(error)});throw error;}
+  horseSyncTrace('PULL_CLOUD_READ',{horseId:localId,cloudId:data?.id||'',cloudUpdatedAt:data?.updated_at||'',cloudFeedingCount:Array.isArray(data?.details?.feedingTimes)?data.details.feedingTimes.length:0,localFeedingCount:Array.isArray(localHorse.feedingTimes)?localHorse.feedingTimes.length:0,localDirty:hasUnsentLocalHorseChanges(localHorse)});
   // A local edit made while this request was in flight invalidates the response.
   const nowAfterRead=getHorses().find(x=>x.id===localId);
   if(!nowAfterRead || horseLocalEditVersion(localId)!==requestLocalEditVersion || (nowAfterRead.local_updated_at||'')!==requestLocalUpdatedAt){
     return;
   }
   if(!data){
+    horseSyncTrace('PULL_CLOUD_MISSING',{horseId:localId,cloudId:localHorse.cloud_id||''});
     // If the horse existed in the cloud and there has been no local change
     // since the last successful sync, a missing cloud row means it was
     // deleted elsewhere. Remove the stale local copy too.
@@ -548,15 +562,19 @@ async function syncCurrentHorseFromCloud(localId){
   const cloudContentChanged=cloudHorseDetailsDiffer(localHorse,data);
   const cloudChanged=!synced||new Date(data.updated_at||0).getTime()>new Date(synced||0).getTime()||cloudContentChanged;
   const localChangeSinceSync=hasUnsentLocalHorseChanges(localHorse);
+  horseSyncTrace('PULL_DECISION',{horseId:localId,cloudChanged,cloudContentChanged,localChangeSinceSync,localUpdatedAt:localHorse.local_updated_at||'',cloudSyncedAt:synced,cloudUpdatedAt:data.updated_at||'',localFeedingCount:Array.isArray(localHorse.feedingTimes)?localHorse.feedingTimes.length:0,cloudFeedingCount:Array.isArray(data.details?.feedingTimes)?data.details.feedingTimes.length:0});
   let final=localHorse;
   if(cloudChanged&&!localChangeSinceSync){
+    horseSyncTrace('PULL_ACTION_CLOUD_WINS',{horseId:localId});
     // The cloud has changed since our last confirmed sync and the local
     // record has not changed since then: cloud is authoritative.
     final={...mergeCloudHorse(localHorse,data),local_updated_at:data.updated_at||'',cloud_synced_at:data.updated_at||'',cloud_dirty:false};
   }else if(localChangeSinceSync&&!cloudChanged){
+    horseSyncTrace('PULL_ACTION_UPLOAD',{horseId:localId});
     const at=await updateHorseInCloud({...localHorse,cloud_id:data.id});
     final={...localHorse,cloud_synced_at:at,cloud_dirty:false};
   }else if(localChangeSinceSync&&cloudChanged){
+    horseSyncTrace('PULL_ACTION_CONFLICT',{horseId:localId,localNewer:new Date(localHorse.local_updated_at||0).getTime()>new Date(data.updated_at||0).getTime()});
     // Both sides changed. The newer explicit change wins.
     if(new Date(localHorse.local_updated_at||0).getTime()>new Date(data.updated_at||0).getTime()){
       const at=await updateHorseInCloud({...localHorse,cloud_id:data.id});
@@ -579,6 +597,7 @@ async function syncCurrentHorseFromCloud(localId){
   const latestChangedDuringRequest=latestNow && latestTs>finalTs && latestTs>latestSyncedTs;
   const writeFinal=latestChangedDuringRequest?latestNow:final;
   localStorage.setItem('horses',JSON.stringify(getHorses().map(x=>x.id===localId?writeFinal:x)));
+  horseSyncTrace('PULL_LOCAL_WRITE',{horseId:localId,finalFeedingCount:Array.isArray(writeFinal?.feedingTimes)?writeFinal.feedingTimes.length:0,finalUpdatedAt:writeFinal?.local_updated_at||'',finalSyncedAt:writeFinal?.cloud_synced_at||''});
   renderHorses();
 }
 
@@ -838,7 +857,7 @@ $('homeEmpty')?.classList.toggle('hidden',horses.length>0);$('horseList').innerH
 $('horseVisibilitySettings').innerHTML=horses.map(h=>`<label class="check"><input type="checkbox" ${h.visible!==false?'checked':''} onchange="toggleHorseVisibility('${h.id}')"><span><b>${escapeHtml(h.name)}</b><br><span class="muted">Auf der Startseite anzeigen</span></span></label>`).join('')||'<p>Noch keine Pferde vorhanden.</p>';
 $('horse').innerHTML=horses.map(h=>`<option>${escapeHtml(h.name)}</option>`).join('');}
 async function openHorseProfile(id){window.currentHorseProfileId=id;show('horseProfile');let h=getHorses().find(x=>x.id===id);if(!h)return;renderHorseProfile(h);window.scrollTo({top:0,behavior:'smooth'});if(horseHubCloudUser){try{await syncCurrentHorseFromCloud(id);let fresh=getHorses().find(x=>x.id===id);if(fresh&&window.currentHorseProfileId===id)renderHorseProfile(fresh)}catch(e){console.warn('Aktueller Pferde-Datensatz konnte nicht aktualisiert werden',e)}}}
-function profileSave(id,field,value){bumpHorseLocalEditVersion(id);let hs=getHorses().map(h=>h.id===id?markHorseLocalChange({...h,[field]:value}):h);localStorage.setItem('horses',JSON.stringify(hs));renderHorses();renderHorseProfile(hs.find(h=>h.id===id));queueHorseCloudSync(id)}
+function profileSave(id,field,value){bumpHorseLocalEditVersion(id);let hs=getHorses().map(h=>h.id===id?markHorseLocalChange({...h,[field]:value}):h);localStorage.setItem('horses',JSON.stringify(hs));horseSyncTrace('LOCAL_SAVE',{horseId:id,field,feedingCount:Array.isArray(hs.find(h=>h.id===id)?.feedingTimes)?hs.find(h=>h.id===id).feedingTimes.length:0,localUpdatedAt:hs.find(h=>h.id===id)?.local_updated_at||''});renderHorses();renderHorseProfile(hs.find(h=>h.id===id));queueHorseCloudSync(id)}
 function addProfileEntry(id,type){let h=getHorses().find(x=>x.id===id);if(!h)return;let title=prompt(type==='documents'?'Titel des Dokuments / Befunds':'Bezeichnung');if(!title?.trim())return;let text=prompt(type==='documents'?'Kurzbeschreibung oder Hinweis':'Details / Inhalt');let arr=Array.isArray(h[type])?[...h[type]]:[];arr.unshift({id:'e'+Date.now(),title:title.trim(),text:(text||'').trim(),date:new Date().toLocaleDateString('de-DE')});profileSave(id,type,arr)}
 function removeProfileEntry(id,type,entryId){let h=getHorses().find(x=>x.id===id);if(!h)return;let arr=(h[type]||[]).filter(e=>e.id!==entryId);profileSave(id,type,arr)}
 function editProfileEntry(id,type,entryId){let h=getHorses().find(x=>x.id===id),e=(h?.[type]||[]).find(x=>x.id===entryId);if(!e)return;let title=prompt('Bezeichnung',e.title);if(!title?.trim())return;let text=prompt('Details / Inhalt',e.text||'');let arr=(h[type]||[]).map(x=>x.id===entryId?{...x,title:title.trim(),text:(text||'').trim()}:x);profileSave(id,type,arr)}
@@ -1201,6 +1220,42 @@ async function runSyncDiagnostics(){
     status.textContent=`Diagnose abgeschlossen: ${new Date(stamp).toLocaleString('de-DE')}`;
   }catch(e){console.error('Sync-Diagnose',e);status.textContent=`⚠️ Diagnose fehlgeschlagen: ${cloudErrorText(e)}`;out.innerHTML='<div class="setting-note">Die Diagnose hat keine Daten verändert. Prüfe die Fehlermeldung oben.</div>';horseHubLastDiagnosticReport={error:String(e?.message||e)};}
 }
+function fillSyncDeepHorseSelect(){const sel=$('syncDeepHorse');if(!sel)return;const hs=getHorses();sel.innerHTML=hs.map(h=>`<option value="${diagEsc(h.id)}">${diagEsc(h.name||h.id)}</option>`).join('');if(!hs.length)sel.innerHTML='<option value="">Keine Pferde</option>';}
+function diagFeedMap(arr){return new Map((Array.isArray(arr)?arr:[]).filter(x=>x&&x.id!=null).map(x=>[String(x.id),x]));}
+function diagFeedRows(local,cloud,base){const lm=diagFeedMap(local),cm=diagFeedMap(cloud),bm=diagFeedMap(base);const ids=[...new Set([...lm.keys(),...cm.keys(),...bm.keys()])];return ids.map(id=>{const l=lm.get(id),c=cm.get(id),b=bm.get(id);let state='';if(l&&c&&diagEq(l,c))state='GLEICH';else if(l&&!c&&b)state=diagEq(l,b)?'CLOUD_FEHLT_UNVERÄNDERT':'NUR_LOKAL';else if(c&&!l&&b)state=diagEq(c,b)?'LOKAL_FEHLT_UNVERÄNDERT':'NUR_CLOUD';else if(l&&!c)state='NUR_LOKAL';else if(c&&!l)state='NUR_CLOUD';else if(l&&c)state='INHALT_ABWEICHEND';else state='NUR_BASIS';return {id,state,local:l||null,cloud:c||null,base:b||null};});}
+function diagJsonShort(v){const s=stableSerialize(v);return s.length>260?s.slice(0,260)+'…':s;}
+async function runHorseSyncDeepDiagnostics(){
+  const status=$('syncDeepStatus'),out=$('syncDeepResults');
+  if(!horseHubCloudUser){status.textContent='⚠️ Nicht angemeldet – Tiefendiagnose nicht möglich.';out.innerHTML='';return;}
+  const id=$('syncDeepHorse')?.value;if(!id){status.textContent='ℹ️ Kein Pferd ausgewählt.';return;}
+  status.textContent='⏳ Prüfe Auth, Cloud, lokalen Stand, Basisstand und Sync-Verlauf …';out.innerHTML='';
+  try{
+    const local=getHorses().find(h=>h.id===id);if(!local)throw new Error('Lokales Pferd nicht gefunden');
+    const q=local.cloud_id?supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('id',local.cloud_id).eq('owner_id',horseHubCloudUser.id):supabaseClient.from('horses').select('id,name,photo_url,details,created_at,updated_at').eq('owner_id',horseHubCloudUser.id).filter('details->>_local_id','eq',id);
+    const {data:cloud,error}=await q.maybeSingle();if(error)throw error;
+    const base=local._cloud_base_details&&typeof local._cloud_base_details==='object'?local._cloud_base_details:{};
+    const lf=Array.isArray(local.feedingTimes)?local.feedingTimes:[],cf=Array.isArray(cloud?.details?.feedingTimes)?cloud.details.feedingTimes:[],bf=Array.isArray(base.feedingTimes)?base.feedingTimes:[];
+    const localTs=new Date(local.local_updated_at||0).getTime(),syncTs=new Date(local.cloud_synced_at||0).getTime(),cloudTs=new Date(cloud?.updated_at||0).getTime();
+    const cloudContentChanged=!!cloud&&cloudHorseDetailsDiffer(local,cloud);const localDirty=hasUnsentLocalHorseChanges(local);const cloudChanged=!!cloud&&(!local.cloud_synced_at||cloudTs>syncTs||cloudContentChanged);
+    const predicted=cloudChanged&&!localDirty?'CLOUD_UEBERNIMMT':localDirty&&!cloudChanged?'UPLOAD_LOKAL':localDirty&&cloudChanged?(localTs>cloudTs?'KONFLIKT_LOCAL_NEUER':'KONFLIKT_CLOUD_NEUER'):'KEINE_AKTION';
+    const rows=diagFeedRows(lf,cf,bf);const trace=horseSyncTraceFor(id);
+    const checks=[
+      ['AUTH_SESSION',horseHubCloudUser?.id?'OK':'FEHLT',`user_id ${horseHubCloudUser?.id||'–'}`],
+      ['HORSE_CLOUD_ID',local.cloud_id?'OK':'FEHLT',local.cloud_id||'–'],
+      ['HORSE_CLOUD_READ',cloud?'OK':'CLOUD_NICHT_GEFUNDEN',cloud?`updated_at ${diagTime(cloud.updated_at)}`:'Kein Cloud-Datensatz'],
+      ['CONTENT_COMPARE',cloud&&cloudContentChanged?'ABWEICHEND':'GLEICH',cloud?`Details ${cloudContentChanged?'unterschiedlich':'gleich'}`:'nicht prüfbar'],
+      ['LOCAL_DIRTY',localDirty?'JA':'NEIN',`local ${diagTime(local.local_updated_at)} · sync ${diagTime(local.cloud_synced_at)}`],
+      ['CLOUD_NEUER',cloud&&cloudChanged?'JA':'NEIN',cloud?`Cloud ${diagTime(cloud.updated_at)} · Sync ${diagTime(local.cloud_synced_at)}`:'–'],
+      ['FEEDING_COUNTS',lf.length===cf.length?'GLEICH':'ABWEICHEND',`lokal ${lf.length} · Cloud ${cf.length} · Basis ${bf.length}`],
+      ['ERWARTETER_SYNC_WEG',predicted,'Aus den aktuell gespeicherten Zuständen berechnet']
+    ];
+    const html=`<div class="card" style="margin-top:8px"><b>🔬 Ergebnis</b><p><b>${diagEsc(predicted)}</b></p>${checks.map(x=>`<div style="padding:6px 0;border-top:1px solid #ddd"><b>${diagEsc(x[0])}:</b> ${diagEsc(x[1])}<br><span class="muted">${diagEsc(x[2])}</span></div>`).join('')}</div>
+      <div class="card" style="margin-top:8px"><b>🥕 Fütterungseinträge einzeln</b>${rows.length?`<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th>ID</th><th>Status</th><th>Lokal</th><th>Cloud</th><th>Basis</th></tr></thead><tbody>${rows.map(r=>`<tr><td style="padding:5px;border-top:1px solid #ddd">${diagEsc(r.id)}</td><td style="padding:5px;border-top:1px solid #ddd"><b>${diagEsc(r.state)}</b></td><td style="padding:5px;border-top:1px solid #ddd">${r.local?diagEsc(diagJsonShort(r.local)):'–'}</td><td style="padding:5px;border-top:1px solid #ddd">${r.cloud?diagEsc(diagJsonShort(r.cloud)):'–'}</td><td style="padding:5px;border-top:1px solid #ddd">${r.base?diagEsc(diagJsonShort(r.base)):'–'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="muted">Keine Fütterungseinträge.</div>'}</div>
+      <div class="card" style="margin-top:8px"><b>🧾 Letzter Sync-Verlauf auf diesem Gerät</b>${trace.length?`<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th>Zeit</th><th>Ereignis</th><th>Details</th></tr></thead><tbody>${trace.slice().reverse().map(t=>`<tr><td style="padding:5px;border-top:1px solid #ddd;white-space:nowrap">${diagEsc(diagTime(t.at))}</td><td style="padding:5px;border-top:1px solid #ddd"><b>${diagEsc(t.event)}</b></td><td style="padding:5px;border-top:1px solid #ddd">${diagEsc(Object.entries(t).filter(([k])=>!['at','event','horseId'].includes(k)).map(([k,v])=>k+'='+String(v)).join(' · '))}</td></tr>`).join('')}</tbody></table></div>`:'<div class="muted">Noch kein aufgezeichneter Sync-Verlauf für dieses Pferd.</div>'}</div>`;
+    out.innerHTML=html;status.textContent=`✅ Tiefendiagnose abgeschlossen: ${new Date().toLocaleString('de-DE')}`;
+    horseHubLastDiagnosticReport={...(horseHubLastDiagnosticReport||{}),deep:{horseId:id,horseName:local.name,checks,feeding:rows,trace}};
+  }catch(e){console.error('Horse Sync Tiefendiagnose',e);status.textContent=`⚠️ Tiefendiagnose fehlgeschlagen: ${cloudErrorText(e)}`;out.innerHTML='<div class="setting-note">Die Diagnose hat keine Pferdedaten verändert.</div>'}
+}
 function roundtripLocal(){try{return JSON.parse(localStorage.getItem(SYNC_DIAG_LOCAL_KEY)||'null')}catch(e){return null}}
 function setRoundtripStatus(msg,html=''){const s=$('syncRoundtripStatus'),r=$('syncRoundtripResults');if(s)s.textContent=msg;if(r)r.innerHTML=html;}
 function renderRoundtrip(t){
@@ -1261,7 +1316,7 @@ async function copySyncDiagnosticReport(){
   const text=JSON.stringify({diagnose:horseHubLastDiagnosticReport,roundtrip:roundtripLocal()},null,2);
   try{await navigator.clipboard.writeText(text);$('syncDiagnosticsStatus').textContent='📋 Diagnose- und Roundtrip-Bericht in die Zwischenablage kopiert.';}catch(e){$('syncDiagnosticsStatus').textContent='ℹ️ Kopieren nicht möglich. Diagnose ist oben sichtbar.';}
 }
-window.addEventListener('DOMContentLoaded',()=>{renderRoundtrip(roundtripLocal())});
+window.addEventListener('DOMContentLoaded',()=>{renderRoundtrip(roundtripLocal());fillSyncDeepHorseSelect();});
 </script>
 </div>
 </body>
