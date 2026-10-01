@@ -175,7 +175,7 @@ footer{display:none}.crop-wrap{position:relative;width:100%;max-width:520px;marg
 <div class="card" style="text-align:center;margin-top:14px;padding:18px 14px">
   <div style="font-size:18px;font-weight:800">HorseHub</div>
   <div class="muted" style="margin-top:5px">Von Pferdebesitzern für Pferdebesitzer❤️</div>
-  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.18.0</div>
+  <div class="muted" style="margin-top:10px;font-size:13px">App-Version 1.19.0</div>
 </div>
 
 </section>
@@ -206,7 +206,7 @@ const horseHubLocalEditVersions=new Map();
 function bumpHorseLocalEditVersion(id){const v=(horseHubLocalEditVersions.get(id)||0)+1;horseHubLocalEditVersions.set(id,v);return v}
 function horseLocalEditVersion(id){return horseHubLocalEditVersions.get(id)||0}
 
-/* HorseHub 1.18.0 – Horse Data Merge + Sync Deep Diagnostics */
+/* HorseHub 1.19.0 – Horse Data Merge + Sync Deep Diagnostics */
 const SUPABASE_URL='https://qbrledhoaufydvjxryce.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_nhrn6L3OWbbw4F7DEYv3WQ_nkGCYmgp';
 const HORSE_PHOTO_BUCKET='horse-photos';
@@ -560,8 +560,21 @@ async function syncCurrentHorseFromCloud(localId){
   // When the local horse is clean, a content difference means the cloud has a
   // version this device has not adopted yet.
   const cloudContentChanged=cloudHorseDetailsDiffer(localHorse,data);
-  const cloudChanged=!synced||new Date(data.updated_at||0).getTime()>new Date(synced||0).getTime()||cloudContentChanged;
+  const cloudTs=new Date(data.updated_at||0).getTime();
+  const syncedTs=new Date(synced||0).getTime();
+  // A content difference alone is NOT enough to make Cloud authoritative.
+  // A pull response can be older than the version this device has just
+  // confirmed (for example when an in-flight/stale read returns after an
+  // upload). Such a response must never roll the horse backwards.
+  const cloudVersionIsNewer=!!synced
+    ? (cloudTs>syncedTs || (cloudTs===syncedTs && cloudContentChanged))
+    : true;
+  const staleCloudContent=!!synced && cloudTs<syncedTs && cloudContentChanged;
+  const cloudChanged=cloudVersionIsNewer;
   const localChangeSinceSync=hasUnsentLocalHorseChanges(localHorse);
+  if(staleCloudContent){
+    horseSyncTrace('PULL_STALE_CLOUD_IGNORED',{horseId:localId,cloudUpdatedAt:data.updated_at||'',cloudSyncedAt:synced,localUpdatedAt:localHorse.local_updated_at||'',localFeedingCount:Array.isArray(localHorse.feedingTimes)?localHorse.feedingTimes.length:0,cloudFeedingCount:Array.isArray(data.details?.feedingTimes)?data.details.feedingTimes.length:0});
+  }
   horseSyncTrace('PULL_DECISION',{horseId:localId,cloudChanged,cloudContentChanged,localChangeSinceSync,localUpdatedAt:localHorse.local_updated_at||'',cloudSyncedAt:synced,cloudUpdatedAt:data.updated_at||'',localFeedingCount:Array.isArray(localHorse.feedingTimes)?localHorse.feedingTimes.length:0,cloudFeedingCount:Array.isArray(data.details?.feedingTimes)?data.details.feedingTimes.length:0});
   let final=localHorse;
   if(cloudChanged&&!localChangeSinceSync){
@@ -633,11 +646,15 @@ async function syncHorsesWithCloud(){
       }
       usedLocalIds.add(local.id);
       const localDirty=hasUnsentLocalHorseChanges(local);
-      // Content comparison is intentional here. A horse can have a different
-      // feedingTimes payload even when updated_at is identical, so timestamp
-      // comparison alone can leave one device permanently stale.
+      // Content comparison is intentional when the cloud version is newer or
+      // has the same timestamp. Never let an older/stale pull response win just
+      // because its JSON payload differs from the local copy.
       const cloudContentChanged=cloudHorseDetailsDiffer(local,row);
-      const cloudChanged=!local.cloud_synced_at||new Date(row.updated_at||0).getTime()>new Date(local.cloud_synced_at||0).getTime()||cloudContentChanged;
+      const rowTs=new Date(row.updated_at||0).getTime();
+      const localSyncedTs=new Date(local.cloud_synced_at||0).getTime();
+      const cloudChanged=!local.cloud_synced_at
+        ? true
+        : (rowTs>localSyncedTs || (rowTs===localSyncedTs && cloudContentChanged));
       if(localDirty){
         // Keep the local edit intact. The per-horse queue will perform a
         // three-way merge against the latest cloud row; this list sync never
@@ -1236,8 +1253,9 @@ async function runHorseSyncDeepDiagnostics(){
     const base=local._cloud_base_details&&typeof local._cloud_base_details==='object'?local._cloud_base_details:{};
     const lf=Array.isArray(local.feedingTimes)?local.feedingTimes:[],cf=Array.isArray(cloud?.details?.feedingTimes)?cloud.details.feedingTimes:[],bf=Array.isArray(base.feedingTimes)?base.feedingTimes:[];
     const localTs=new Date(local.local_updated_at||0).getTime(),syncTs=new Date(local.cloud_synced_at||0).getTime(),cloudTs=new Date(cloud?.updated_at||0).getTime();
-    const cloudContentChanged=!!cloud&&cloudHorseDetailsDiffer(local,cloud);const localDirty=hasUnsentLocalHorseChanges(local);const cloudChanged=!!cloud&&(!local.cloud_synced_at||cloudTs>syncTs||cloudContentChanged);
-    const predicted=cloudChanged&&!localDirty?'CLOUD_UEBERNIMMT':localDirty&&!cloudChanged?'UPLOAD_LOKAL':localDirty&&cloudChanged?(localTs>cloudTs?'KONFLIKT_LOCAL_NEUER':'KONFLIKT_CLOUD_NEUER'):'KEINE_AKTION';
+    const cloudContentChanged=!!cloud&&cloudHorseDetailsDiffer(local,cloud);const localDirty=hasUnsentLocalHorseChanges(local);const cloudChanged=!!cloud&&(!local.cloud_synced_at||(cloudTs>syncTs||(cloudTs===syncTs&&cloudContentChanged)));
+    const staleCloudContent=!!cloud&&!!local.cloud_synced_at&&cloudTs<syncTs&&cloudContentChanged;
+    const predicted=staleCloudContent?'CLOUD_VERALTET_IGNORIERT':cloudChanged&&!localDirty?'CLOUD_UEBERNIMMT':localDirty&&!cloudChanged?'UPLOAD_LOKAL':localDirty&&cloudChanged?(localTs>cloudTs?'KONFLIKT_LOCAL_NEUER':'KONFLIKT_CLOUD_NEUER'):'KEINE_AKTION';
     const rows=diagFeedRows(lf,cf,bf);const trace=horseSyncTraceFor(id);
     const checks=[
       ['AUTH_SESSION',horseHubCloudUser?.id?'OK':'FEHLT',`user_id ${horseHubCloudUser?.id||'–'}`],
