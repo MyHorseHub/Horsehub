@@ -754,7 +754,9 @@ async function syncCurrentHorseFromCloud(localId){
    in horsehub_v2_feedings, one row per feeding. No full-horse JSON merge.
    ================================================================ */
 const HORSEHUB_V2_FEEDING_TABLE='horsehub_v2_feedings';
+const HORSEHUB_V2_RUNTIME='HH-2.0.2-SYNCV2-DELETE-FIX';
 const HORSEHUB_V2_FEEDING_TOMBSTONES='horsehub_v2_feeding_tombstones';
+
 let horseHubV2FeedingTimers=new Map();
 let horseHubV2FeedingSyncing=new Set();
 function v2FeedingTombstonesRead(){try{return JSON.parse(localStorage.getItem(HORSEHUB_V2_FEEDING_TOMBSTONES)||'{}')||{}}catch(e){return {}}}
@@ -796,7 +798,13 @@ function v2MergeFeedings(localRows,cloudRows,tombstones,horseCloudId){
   for(const r of localRows)if(r?.id)byId.set(String(r.id),{...r});
   for(const r of cloudRows){
     const id=String(r.client_id); const local=byId.get(id); const lt=new Date(local?.updated_at||0).getTime(); const ct=new Date(r.updated_at||0).getTime();
-    if(r.deleted_at){if(!local||ct>=lt)byId.delete(id);continue}
+    if(r.deleted_at){
+      // A confirmed Cloud tombstone is authoritative for this Phase-1 dataset.
+      // This deliberately removes the local cache row even when its old local
+      // timestamp is slightly newer than the tombstone timestamp.
+      byId.delete(id);
+      continue;
+    }
     if(!local||ct>lt||ct===lt)byId.set(id,v2FeedingFromCloud(r));
   }
   // A confirmed local tombstone always hides an older/equal cloud row.
@@ -819,17 +827,41 @@ async function v2UpsertFeedingRow(horseCloudId,f){
   const {data,error}=await supabaseClient.from(HORSEHUB_V2_FEEDING_TABLE).upsert(payload,{onConflict:'owner_id,horse_id,client_id'}).select('client_id,updated_at,deleted_at').single();
   if(error)throw error; return data;
 }
-async function v2DeleteFeedingRow(horseCloudId,t){
-  const payload=v2FeedingPayload(horseCloudId,{id:t.clientId},horseHubCloudUser.id,t.deleted_at,t.deleted_at);
-  const {data,error}=await supabaseClient.from(HORSEHUB_V2_FEEDING_TABLE).upsert(payload,{onConflict:'owner_id,horse_id,client_id'}).select('client_id,updated_at,deleted_at').single();
-  if(error)throw error; return data;
+async function v2DeleteFeedingRow(horseCloudId,t,existingRow=null){
+  const now=t.deleted_at||new Date().toISOString();
+  // If the row already exists, update ONLY the deletion metadata. This keeps
+  // the original feeding contents intact and makes the tombstone explicit.
+  if(existingRow?.id){
+    const {data,error}=await supabaseClient
+      .from(HORSEHUB_V2_FEEDING_TABLE)
+      .update({updated_at:now,deleted_at:now})
+      .eq('id',existingRow.id)
+      .eq('owner_id',horseHubCloudUser.id)
+      .eq('horse_id',horseCloudId)
+      .select('id,client_id,updated_at,deleted_at')
+      .maybeSingle();
+    if(error)throw error;
+    if(!data)throw new Error('Cloud-Löschung hat keine Zeile aktualisiert.');
+    return data;
+  }
+  // If the row is already absent, create a minimal tombstone so another
+  // device still learns about the deletion.
+  const payload=v2FeedingPayload(horseCloudId,{id:t.clientId},horseHubCloudUser.id,now,now);
+  const {data,error}=await supabaseClient
+    .from(HORSEHUB_V2_FEEDING_TABLE)
+    .upsert(payload,{onConflict:'owner_id,horse_id,client_id'})
+    .select('id,client_id,updated_at,deleted_at')
+    .maybeSingle();
+  if(error)throw error;
+  if(!data)throw new Error('Cloud-Löschmarke wurde nicht bestätigt.');
+  return data;
 }
 async function syncV2FeedingsForHorse(localHorseId){
   if(!horseHubCloudUser||!localHorseId)return;
   const local=getHorses().find(x=>x.id===localHorseId); if(!local)return;
   if(horseHubV2FeedingSyncing.has(localHorseId))return;
   horseHubV2FeedingSyncing.add(localHorseId);
-  horseSyncTrace('V2_FEEDING_SYNC_START',{horseId:localHorseId,cloudId:local.cloud_id||'',localCount:v2LocalFeedings(local).length});
+  horseSyncTrace('V2_FEEDING_SYNC_START',{runtime:HORSEHUB_V2_RUNTIME,horseId:localHorseId,cloudId:local.cloud_id||'',localCount:v2LocalFeedings(local).length});
   try{
     let h=getHorses().find(x=>x.id===localHorseId)||local;
     if(!h.cloud_id){await syncHorseToCloud(localHorseId); h=getHorses().find(x=>x.id===localHorseId)||h;}
@@ -856,9 +888,11 @@ async function syncV2FeedingsForHorse(localHorseId){
     for(const [key,t] of Object.entries(t2)){
       if(!t||t.cloudId!==h.cloud_id||t.horseId!==localHorseId)continue;
       const c=cloudById.get(String(t.clientId));
-      if(!c || new Date(t.deleted_at||0).getTime()>=new Date(c.updated_at||0).getTime()){
-        const written=await v2DeleteFeedingRow(h.cloud_id,t);
-        if(written){delete t2[key];}
+      const localDeleteTs=new Date(t.deleted_at||0).getTime();
+      const cloudTs=new Date(c?.updated_at||0).getTime();
+      if(!c || localDeleteTs>=cloudTs || !!c.deleted_at){
+        const written=await v2DeleteFeedingRow(h.cloud_id,t,c||null);
+        if(written && new Date(written.deleted_at||0).getTime()>=localDeleteTs){delete t2[key];}
       }
     }
     v2FeedingTombstonesWrite(t2);
