@@ -22,7 +22,7 @@ hr{border:0;border-top:1px solid var(--border);margin:16px 0}.footer{color:#8189
 </head>
 <body>
 <div class="wrap">
-  <header class="hero"><img src="./icon-192.png" alt="HorseHub"><div><h1>HorseHub RxDB Sync Lab 1.1</h1><p>Push-Diagnose · RxDB 17.5 + Supabase</p></div></header>
+  <header class="hero"><img src="./icon-192.png" alt="HorseHub"><div><h1>HorseHub RxDB Sync Lab 1.2</h1><p>Push-Diagnose v2 · RxDB 17.5 + Supabase</p></div></header>
 
   <section id="authCard" class="card">
     <h2>🔐 Anmeldung</h2>
@@ -50,6 +50,7 @@ hr{border:0;border-top:1px solid var(--border);margin:16px 0}.footer{color:#8189
       <div class="row" style="margin-top:12px">
         <button id="syncBtn">↻ Jetzt synchronisieren</button>
         <button class="secondary" id="directBtn">☁ Direkten Supabase-Test</button>
+        <button class="secondary" id="directUpdateBtn">✎ Direct INSERT+UPDATE</button>
         <button class="secondary" id="reloadBtn">⟳ Lokale Ansicht neu laden</button>
         <span class="pill" id="countPill">Lokal: 0</span>
         <span class="pill" id="cloudPill">Cloud: –</span>
@@ -82,6 +83,7 @@ hr{border:0;border-top:1px solid var(--border);margin:16px 0}.footer{color:#8189
         <div class="status"><b>Replication</b><br><span id="diagReplication">–</span></div>
         <div class="status"><b>Auth / Rolle</b><br><span id="diagAuth">–</span></div>
         <div class="status"><b>Letztes Ereignis</b><br><span id="diagEvent">–</span></div>
+        <div class="status"><b>Letzter RxDB-Fehler</b><br><span id="diagError">–</span></div>
       </div>
       <hr>
       <details><summary>Technischer Log</summary><pre id="log"></pre></details>
@@ -104,13 +106,34 @@ const DB_NAME='horsehub-rxdb-sync-lab-v1';
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const $=id=>document.getElementById(id);
 let db=null, collection=null, replication=null, user=null, sub=null;
-const BUILD="HH-RXDB-LAB-1.1-PUSH-DIAG";
+const BUILD="HH-RXDB-LAB-1.2-PUSH-TRACE";
+let lastReplicationError=null;
+let lastSentIds=new Set();
 
-function safeError(e){
-  if(!e)return 'unknown';
-  const out={name:e.name,message:e.message,code:e.code,status:e.status,statusCode:e.statusCode,details:e.details,hint:e.hint};
-  try{ if(e.cause) out.cause=String(e.cause); }catch{}
-  return JSON.stringify(out);
+function cleanValue(value, depth=0){
+  if(depth>4)return '[max-depth]';
+  if(value===null||value===undefined)return value;
+  if(value instanceof Error){
+    return {name:value.name,message:value.message,code:value.code,status:value.status,statusCode:value.statusCode,details:value.details,hint:value.hint,stack:value.stack};
+  }
+  if(Array.isArray(value))return value.slice(0,20).map(v=>cleanValue(v,depth+1));
+  if(typeof value==='object'){
+    const out={};
+    for(const k of Object.keys(value).slice(0,60)){
+      try{out[k]=cleanValue(value[k],depth+1);}catch{out[k]='[unserializable]';}
+    }
+    return out;
+  }
+  return value;
+}
+function safeError(e){return JSON.stringify(cleanValue(e));}
+function extractOriginalError(e){
+  return e?.parameters?.errors?.[0] || e?.parameters?.error || e?.cause || e;
+}
+function showReplicationError(err){
+  lastReplicationError=err;
+  const original=extractOriginalError(err);
+  $('diagError').textContent=(original?.code||original?.status||original?.statusCode||err?.code||'ERROR')+' · '+(original?.message||err?.message||String(err));
 }
 function log(...parts){
   const line='['+new Date().toLocaleTimeString('de-DE')+'] '+parts.map(x=>typeof x==='string'?x:JSON.stringify(x,(k,v)=>v instanceof Error?{name:v.name,message:v.message,code:v.code,status:v.status,details:v.details,hint:v.hint}:v)).join(' ');
@@ -167,9 +190,25 @@ async function initRx(){
     push:{batchSize:50},
     modifiedField:'_modified',deletedField:'_deleted'
   });
-  replication.error$.subscribe(err=>{setSync('Fehler im Sync','err');$('diagReplication').textContent='ERROR';$('diagEvent').textContent=err?.message||String(err);log('REPLICATION_ERROR',safeError(err));});
-  replication.sent$.subscribe(doc=>{ $('diagEvent').textContent='Push: '+doc.id; log('SENT',doc.id,doc.label); });
-  replication.received$.subscribe(doc=>{ $('diagEvent').textContent='Pull: '+doc.id; log('RECEIVED',doc.id,doc.label); });
+  replication.error$.subscribe(err=>{
+    setSync('Fehler im Sync','err');
+    $('diagReplication').textContent='PUSH/PULL ERROR';
+    $('diagEvent').textContent=err?.message||String(err);
+    showReplicationError(err);
+    log('REPLICATION_ERROR_FULL',cleanValue(err));
+    const original=extractOriginalError(err);
+    log('REPLICATION_ERROR_ORIGINAL',cleanValue(original));
+  });
+  replication.sent$.subscribe(doc=>{
+    lastSentIds.add(doc.id);
+    $('diagEvent').textContent='Push erfolgreich: '+doc.id;
+    $('diagError').textContent='–';
+    setSync('Push erfolgreich','ok');
+    log('SENT_SUCCESS',cleanValue(doc.toJSON?doc.toJSON():doc));
+  });
+  replication.received$.subscribe(doc=>{ $('diagEvent').textContent='Pull: '+doc.id; log('RECEIVED',cleanValue(doc.toJSON?doc.toJSON():doc)); });
+  replication.active$.subscribe(active=>log('REPLICATION_ACTIVE',active));
+  replication.canceled$.subscribe(canceled=>{if(canceled)log('REPLICATION_CANCELED');});
   try{await replication.awaitInitialReplication();setSync('synchronisiert','ok');$('diagReplication').textContent='Initial Sync OK';log('INITIAL_SYNC_OK');}
   catch(e){setSync('Initial-Sync Fehler','err');$('diagReplication').textContent='INITIAL ERROR';log('INITIAL_SYNC_ERROR',e?.message||String(e));}
   await refreshAll();
@@ -187,20 +226,46 @@ function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;',
 async function addFeeding(){
   const label=$('newLabel').value.trim()||('RXDB-TEST-'+Date.now()), amount=$('newAmount').value.trim()||'1', unit=$('newUnit').value.trim()||'kg';
   const now=new Date().toISOString(); const id='rx-'+crypto.randomUUID();
-  await collection.insert({id,owner_id:user.id,horse_id:$('horseId').value.trim()||'rxdb-lab-horse-1',label,amount,unit,_modified:now,_deleted:false});
-  $('newLabel').value='';log('LOCAL_INSERT',id,label,amount,unit);await renderFeedings();
-  await diagnosePushForId(id);
+  const doc=await collection.insert({id,owner_id:user.id,horse_id:$('horseId').value.trim()||'rxdb-lab-horse-1',label,amount,unit,_modified:now,_deleted:false});
+  $('newLabel').value='';
+  $('diagError').textContent='–';
+  log('LOCAL_INSERT',id,label,amount,unit);
+  await renderFeedings();
+  await diagnosePushForDoc(doc);
 }
-async function diagnosePushForId(id){
-  log('PUSH_WAIT_START',id);
+async function diagnosePushForDoc(doc){
+  const id=doc.id;
+  log('PUSH_TRACE_START',id,cleanValue(doc.toJSON()));
+  if(!replication){log('PUSH_TRACE_NO_REPLICATION');return;}
+  const timeoutMs=15000;
   try{
-    if(replication?.awaitInSync) await replication.awaitInSync();
-    const {data,rowError}=await supabase.from(TABLE).select('id,owner_id,horse_id,label,amount,unit,_modified,_deleted').eq('id',id).maybeSingle();
-    if(rowError) throw rowError;
+    setSync('Warte auf Push …','warn');
+    if(lastReplicationError){log('PUSH_TRACE_PREVIOUS_ERROR',cleanValue(lastReplicationError));}
+    const waitPromise=replication.awaitDocumentPushed(doc);
+    let timedOut=false;
+    await Promise.race([
+      waitPromise,
+      new Promise((_,reject)=>setTimeout(()=>{timedOut=true;reject(new Error('TIMEOUT_AWAIT_DOCUMENT_PUSHED_'+timeoutMs+'ms'));},timeoutMs))
+    ]);
+    if(!timedOut){
+      $('diagReplication').textContent='AWAIT_DOCUMENT_PUSHED OK';
+      setSync('Push bestätigt','ok');
+      log('AWAIT_DOCUMENT_PUSHED_OK',id);
+    }
+  }catch(e){
+    $('diagReplication').textContent='AWAIT_DOCUMENT_PUSHED: '+(e?.message||String(e));
+    $('diagEvent').textContent='Push-Wartefehler: '+id;
+    log('AWAIT_DOCUMENT_PUSHED_ERROR',safeError(e));
+    if(lastReplicationError)log('LATEST_REPLICATION_ERROR',cleanValue(lastReplicationError));
+  }
+  try{
+    const {data,error}=await supabase.from(TABLE).select('id,owner_id,horse_id,label,amount,unit,_modified,_deleted').eq('id',id).maybeSingle();
+    if(error)throw error;
     if(data){
       $('diagReplication').textContent='PUSH OK · Cloud bestätigt';
       $('diagEvent').textContent='Cloud bestätigt: '+id;
-      log('PUSH_CLOUD_CONFIRMED',data);
+      $('diagError').textContent='–';
+      log('PUSH_CLOUD_CONFIRMED',cleanValue(data));
     }else{
       $('diagReplication').textContent='PUSH NICHT BESTÄTIGT';
       $('diagEvent').textContent='Cloud: keine Zeile für '+id;
@@ -210,9 +275,11 @@ async function diagnosePushForId(id){
   }catch(e){
     $('diagReplication').textContent='PUSH/READBACK FEHLER';
     $('diagEvent').textContent=e?.message||String(e);
-    log('PUSH_DIAGNOSTIC_ERROR',safeError(e));
+    $('diagError').textContent=(e?.code||e?.status||'ERROR')+' · '+(e?.message||String(e));
+    log('PUSH_READBACK_ERROR',safeError(e));
   }
 }
+
 async function directSupabaseTest(){
   if(!user)return;
   const horseId=$('horseId').value.trim()||'rxdb-lab-horse-1';
@@ -232,12 +299,38 @@ async function directSupabaseTest(){
     log('DIRECT_TEST_ERROR',safeError(e));
   }
 }
+async function directInsertUpdateTest(){
+  if(!user)return;
+  const horseId=$('horseId').value.trim()||'rxdb-lab-horse-1';
+  const id='direct-upd-'+crypto.randomUUID();
+  const row={id,owner_id:user.id,horse_id:horseId,label:'DIRECT-INSERT-UPDATE',amount:'1',unit:'kg',_modified:new Date().toISOString(),_deleted:false};
+  log('DIRECT_INSERT_UPDATE_START',row);
+  try{
+    const ins=await supabase.from(TABLE).insert(row).select().single();
+    if(ins.error)throw ins.error;
+    log('DIRECT_INSERT_OK_FOR_UPDATE',cleanValue(ins.data));
+    const updatedAt=new Date().toISOString();
+    const upd=await supabase.from(TABLE).update({amount:'2',_modified:updatedAt}).eq('id',id).select().single();
+    if(upd.error)throw upd.error;
+    $('diagReplication').textContent='DIRECT INSERT+UPDATE OK';
+    $('diagEvent').textContent='Direkter INSERT+UPDATE bestätigt: '+id;
+    $('diagError').textContent='–';
+    log('DIRECT_UPDATE_SUCCESS',cleanValue(upd.data));
+    await refreshCloudCount();
+  }catch(e){
+    $('diagReplication').textContent='DIRECT INSERT+UPDATE FEHLER';
+    $('diagEvent').textContent=e?.message||String(e);
+    $('diagError').textContent=(e?.code||e?.status||'ERROR')+' · '+(e?.message||String(e));
+    log('DIRECT_INSERT_UPDATE_ERROR',safeError(e));
+  }
+}
+
 async function editDoc(id){const doc=await collection.findOne(id).exec();if(!doc)return;const x=doc.toJSON();const amount=prompt('Neue Menge für '+x.label,x.amount);if(amount===null)return;await doc.incrementalPatch({_modified:new Date().toISOString(),amount:String(amount)});log('LOCAL_UPDATE',id,'amount',amount);}
 async function deleteDoc(id){const doc=await collection.findOne(id).exec();if(!doc)return;const x=doc.toJSON();if(!confirm('Fütterung wirklich löschen?\n\n'+x.label))return;await doc.remove();log('LOCAL_DELETE',id,x.label);await renderFeedings();}
 async function syncNow(){if(!replication)return;setSync('Synchronisiere …','warn');log('MANUAL_RESYNC');try{replication.reSync();await replication.awaitInSync();setSync('synchronisiert','ok');}catch(e){setSync('Sync-Fehler','err');log('RESYNC_ERROR',e?.message||String(e));}await refreshAll();}
 async function refreshCloudCount(){if(!user){return}const {count,error}=await supabase.from(TABLE).select('id',{count:'exact',head:true}).eq('owner_id',user.id).eq('horse_id',$('horseId').value.trim()||'rxdb-lab-horse-1').eq('_deleted',false);if(error){$('cloudPill').textContent='Cloud: Fehler';$('diagCloud').textContent=error.message;log('CLOUD_COUNT_ERROR',error.message);return}$('cloudPill').textContent='Cloud: '+(count??0);$('diagCloud').textContent=(count??0)+' aktive Fütterungen';}
 
-$('loginBtn').onclick=authLogin;$('signupBtn').onclick=signup;$('logoutBtn').onclick=logout;$('addBtn').onclick=addFeeding;$('syncBtn').onclick=syncNow;$('directBtn').onclick=directSupabaseTest;$('reloadBtn').onclick=refreshAll;
+$('loginBtn').onclick=authLogin;$('signupBtn').onclick=signup;$('logoutBtn').onclick=logout;$('addBtn').onclick=addFeeding;$('syncBtn').onclick=syncNow;$('directBtn').onclick=directSupabaseTest;$('directUpdateBtn').onclick=directInsertUpdateTest;$('reloadBtn').onclick=refreshAll;
 $('horseId').addEventListener('change',()=>initRx());$('horseName').addEventListener('input',()=>{ $('horsePill').textContent=$('horseName').value||'RXDB-Testpferd'; });
 window.addEventListener('online',()=>{setNet();log('NETWORK_ONLINE');});window.addEventListener('offline',()=>{setNet();log('NETWORK_OFFLINE');setSync('offline','warn');});setNet();
 
