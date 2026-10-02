@@ -1,4 +1,4 @@
-"""HorseHub 1.25.3 browser smoke test.
+"""HorseHub 1.25.4 browser smoke test.
 
 Runs the real PWA HTML in Chromium with a local HTTP server. The Supabase CDN
 script is replaced by a tiny in-browser stub so the test is deterministic and
@@ -95,7 +95,17 @@ def main() -> int:
             executable_path="/usr/bin/chromium",
             args=["--no-sandbox"],
         )
-        context = browser.new_context(service_workers="block", viewport={"width": 390, "height": 844})
+        context = browser.new_context(service_workers="block", viewport={"width": 390, "height": 844}, permissions=["notifications"])
+        # Mock system notifications: validates local scheduling/deduplication, not Android OS delivery.
+        context.add_init_script("""
+          window.__horseHubTestNotifications = [];
+          class MockNotification {
+            static permission = 'granted';
+            static requestPermission = async () => 'granted';
+            constructor(title, options={}) { window.__horseHubTestNotifications.push({title, body: options.body, tag: options.tag}); }
+          }
+          Object.defineProperty(window, 'Notification', {value: MockNotification, configurable: true});
+        """)
         page = context.new_page()
         attach_listeners(page)
 
@@ -210,6 +220,42 @@ def main() -> int:
             check("Medication administration time saved from time menu", medications[0]["time"] == "08:00")
             check("Optional reminder time can be left blank", medications[0]["reminderTime"] == "")
             check("Medication menu closes after save", page.locator("#medicationDayPicker").count() == 0)
+
+            # 4) Local reminder scheduler: medication, feeding, routine and calendar, exactly once.
+            js(page, f"""
+              const target = new Date(Math.ceil((Date.now()+120000)/60000)*60000);
+              const hh = String(target.getHours()).padStart(2,'0');
+              const mm = String(target.getMinutes()).padStart(2,'0');
+              const day = (target.getDay()+6)%7;
+              const horses = JSON.parse(localStorage.getItem('horses')||'[]');
+              const h = horses.find(x=>x.id==='{horse_id}');
+              h.medications = [{{id:'med-reminder-test',name:'Erinnerungs-Test',dose:'5 ml',reminderTime:hh+':'+mm,days:[day]}}];
+              h.feedingTimes = [{{id:'feed-reminder-test',label:'Testfütterung',time:hh+':'+mm,enabled:true}}];
+              localStorage.setItem('horses',JSON.stringify(horses));
+              localStorage.setItem('routines',JSON.stringify([{{id:'routine-reminder-test',title:'Test-Routine',frequency:'täglich',time:hh+':'+mm,enabled:true}}]));
+              const eventAt = new Date(target.getTime()+60000);
+              const iso = `${{eventAt.getFullYear()}}-${{String(eventAt.getMonth()+1).padStart(2,'0')}}-${{String(eventAt.getDate()).padStart(2,'0')}}`;
+              const eh = String(eventAt.getHours()).padStart(2,'0'), em = String(eventAt.getMinutes()).padStart(2,'0');
+              localStorage.setItem('calendarEvents',JSON.stringify([{{id:'event-reminder-test',date:iso,time:eh+':'+em,title:'Test-Termin',type:'Kontrolle',reminderMinutes:1,reminded:false}}]));
+              window.__testNow = target.getTime()+5000;
+              processDueReminders(window.__testNow);
+              processDueReminders(window.__testNow+1000);
+            """)
+            page.wait_for_timeout(100)
+            notif = js(page, "window.__horseHubTestNotifications")
+            check("Medication reminder fires once", sum(1 for n in notif if n.get("title") == "HorseHub – Medikament" and "Erinnerungs-Test" in (n.get("body") or "")) == 1)
+            check("Feeding reminder fires once", sum(1 for n in notif if n.get("title") == "HorseHub – Fütterung" and "Testfütterung" in (n.get("body") or "")) == 1)
+            check("Routine reminder fires once", sum(1 for n in notif if n.get("title") == "HorseHub – Routine" and "Test-Routine" in (n.get("body") or "")) == 1)
+            check("Calendar reminder fires once", sum(1 for n in notif if n.get("title") == "HorseHub – Terminerinnerung" and "Test-Termin" in (n.get("body") or "")) == 1)
+            check("Reminder ledger prevents duplicate notifications", len(js(page, "JSON.parse(localStorage.getItem('horsehubReminderLedger')||'{}')")) == 4)
+            js(page, f"""
+              const horses = JSON.parse(localStorage.getItem('horses')||'[]');
+              const h = horses.find(x=>x.id==='{horse_id}');
+              h.medications=[]; h.feedingTimes=[];
+              localStorage.setItem('horses',JSON.stringify(horses));
+              localStorage.setItem('routines','[]');
+              localStorage.setItem('calendarEvents','[]');
+            """)
 
             # 4) Notes: create, edit, delete.
             js(page, "showById('notes')")
