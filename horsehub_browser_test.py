@@ -1,4 +1,4 @@
-"""HorseHub 1.25.0 browser smoke test.
+"""HorseHub 1.25.2 browser smoke test.
 
 Runs the real PWA HTML in Chromium with a local HTTP server. The Supabase CDN
 script is replaced by a tiny in-browser stub so the test is deterministic and
@@ -186,7 +186,25 @@ def main() -> int:
             horses = js(page, "JSON.parse(localStorage.getItem('horses') || '[]')")
             check("Editing updates existing horse without duplicate", len(horses) == 1 and horses[0]["id"] == horse_id and horses[0]["name"] == "Browser Test Pferd – geändert")
 
-            # 3) Notes: create, edit, delete.
+            # 3) Medication weekday selection is a menu, and only selected days are saved.
+            js(page, f"openHorseProfile('{horse_id}')")
+            medication_answers = ["Browser Test Medikament", "10 ml", "08:00", ""]
+            def medication_prompt(dialog):
+                dialog.accept(medication_answers.pop(0))
+            page.on("dialog", medication_prompt)
+            page.locator("#horseProfileContent").get_by_role("button", name="+ Medikament", exact=True).click()
+            page.remove_listener("dialog", medication_prompt)
+            picker = page.locator("#medicationDayPicker")
+            expect(picker).to_be_visible()
+            check("Medication days open in a menu", picker.get_by_role("heading", name="Wochentage auswählen").is_visible())
+            picker.locator('input[type="checkbox"][value="1"]').uncheck()
+            picker.locator('input[type="checkbox"][value="5"]').uncheck()
+            picker.get_by_role("button", name="Auswahl übernehmen").click()
+            medications = js(page, f"JSON.parse(localStorage.getItem('horses')).find(h => h.id === '{horse_id}').medications")
+            check("Medication saves selected weekdays only", len(medications) == 1 and medications[0]["days"] == [0, 2, 3, 4, 6])
+            check("Medication menu closes after save", page.locator("#medicationDayPicker").count() == 0)
+
+            # 4) Notes: create, edit, delete.
             js(page, "showById('notes')")
             page.locator("#horse").select_option(label="Browser Test Pferd – geändert")
             page.locator("#note").fill("Erste Browser-Test-Notiz")
@@ -208,7 +226,7 @@ def main() -> int:
             notes = js(page, "JSON.parse(localStorage.getItem('notes') || '[]')")
             check("Note deleted", len(notes) == 0)
 
-            # 4) Team + plan: link plan to horse, share with team member, edit, delete.
+            # 5) Team + plan: link plan to horse, share with team member, edit, delete.
             js(page, """
                 localStorage.setItem('teamMembers', JSON.stringify([
                   {id:'tm-browser', name:'Browser Team', role:'Stallhilfe', email:'team@horsehub.local'}
@@ -239,7 +257,7 @@ def main() -> int:
             plans = js(page, "JSON.parse(localStorage.getItem('plans') || '[]')")
             check("Plan deleted", len(plans) == 0)
 
-            # 5) Today list hides completed manual tasks.
+            # 6) Today list hides completed manual tasks.
             js(page, """
                 const d = todayISO();
                 localStorage.setItem('todayTasks', JSON.stringify([
@@ -255,7 +273,7 @@ def main() -> int:
             page.wait_for_timeout(50)
             check("All-done Today state appears", "Alles für heute erledigt" in page.locator("#todayTodoList").inner_text())
 
-            # 6) No accidental cloud calls occurred during the local-only flow.
+            # 7) No accidental cloud calls occurred during the local-only flow.
             cloud_calls = js(page, "({...__hhStubCalls})")
             check("No Supabase table/storage calls in local-only browser flow", cloud_calls["from"] == 0 and cloud_calls["storage"] == 0 and cloud_calls["rpc"] == 0)
             check("No unhandled page errors", not page_errors)
