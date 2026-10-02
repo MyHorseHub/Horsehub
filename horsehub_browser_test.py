@@ -1,4 +1,4 @@
-"""HorseHub 1.25.2 browser smoke test.
+"""HorseHub 1.25.3 browser smoke test.
 
 Runs the real PWA HTML in Chromium with a local HTTP server. The Supabase CDN
 script is replaced by a tiny in-browser stub so the test is deterministic and
@@ -188,11 +188,16 @@ def main() -> int:
 
             # 3) Medication weekday selection is a menu, and only selected days are saved.
             js(page, f"openHorseProfile('{horse_id}')")
-            medication_answers = ["Browser Test Medikament", "10 ml", "08:00", ""]
+            medication_answers = ["Browser Test Medikament", "10 ml"]
             def medication_prompt(dialog):
                 dialog.accept(medication_answers.pop(0))
             page.on("dialog", medication_prompt)
             page.locator("#horseProfileContent").get_by_role("button", name="+ Medikament", exact=True).click()
+            check("Medication administration time uses native time input", page.locator("#medicationTimePicker input[type=time]").count() == 1)
+            page.locator("#medicationTimePicker").get_by_label("Uhrzeit").fill("08:00")
+            page.locator("#medicationTimePicker").get_by_role("button", name="Übernehmen").click()
+            expect(page.locator("#medicationTimePicker")).to_be_visible()
+            page.locator("#medicationTimePicker").get_by_role("button", name="Ohne Uhrzeit").click()
             page.remove_listener("dialog", medication_prompt)
             picker = page.locator("#medicationDayPicker")
             expect(picker).to_be_visible()
@@ -202,6 +207,8 @@ def main() -> int:
             picker.get_by_role("button", name="Auswahl übernehmen").click()
             medications = js(page, f"JSON.parse(localStorage.getItem('horses')).find(h => h.id === '{horse_id}').medications")
             check("Medication saves selected weekdays only", len(medications) == 1 and medications[0]["days"] == [0, 2, 3, 4, 6])
+            check("Medication administration time saved from time menu", medications[0]["time"] == "08:00")
+            check("Optional reminder time can be left blank", medications[0]["reminderTime"] == "")
             check("Medication menu closes after save", page.locator("#medicationDayPicker").count() == 0)
 
             # 4) Notes: create, edit, delete.
